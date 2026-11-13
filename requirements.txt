@@ -1,0 +1,8 @@
+faster-whisper
+vosk
+sounddevice
+numpy
+rapidfuzz
+customtkinter
+pystray
+pillow
