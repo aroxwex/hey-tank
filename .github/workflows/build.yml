@@ -24,14 +24,20 @@ jobs:
       - name: exe derle
         run: >
           pyinstaller --noconfirm --noconsole --name HeyTank
+          --add-data "ui;ui"
           --hidden-import pystray._win32
-          --collect-all customtkinter --collect-all vosk
-          --collect-all faster_whisper --collect-all ctranslate2
+          --collect-all webview --collect-all clr_loader --collect-all pythonnet
+          --collect-all vosk --collect-all faster_whisper --collect-all ctranslate2
           --collect-all av --collect-all sounddevice --collect-all _sounddevice_data
           main.py
 
       - name: Modelleri indir
         run: python tools/fetch_models.py dist/HeyTank/models
+
+      - name: Boyutu goster
+        run: |
+          $s = (Get-ChildItem dist/HeyTank -Recurse | Measure-Object Length -Sum).Sum / 1MB
+          Write-Host ("Toplam: {0:N0} MB" -f $s)
 
       - name: Artifact yukle
         uses: actions/upload-artifact@v4

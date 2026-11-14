@@ -1,8 +1,7 @@
-# Hey Tank - Windows icin portable, cevrimdisi sesli komut asistani
+# Hey Tank 1.0 - portable, cevrimdisi Turkce sesli komut asistani (Windows)
 import sys
 import os
 
-# --noconsole ile derlenince stdout/stderr None olur; bazi kutuphaneler cokmesin
 if sys.stdout is None:
     sys.stdout = open(os.devnull, "w")
 if sys.stderr is None:
@@ -10,23 +9,24 @@ if sys.stderr is None:
 
 import json
 import re
+import gc
 import time
 import queue
-import threading
+import uuid
 import random
 import ctypes
 import datetime
+import threading
 from collections import deque
 from pathlib import Path
 
 import numpy as np
-import customtkinter as ctk
-from tkinter import filedialog, messagebox
 from rapidfuzz import fuzz
 
-# ----------------------------------------------------------------------------
-# Yollar (hepsi exe'nin bulundugu klasorde -> portable)
-# ----------------------------------------------------------------------------
+VERSION = "1.0"
+SR = 16000
+
+
 def base_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
@@ -34,35 +34,45 @@ def base_dir() -> Path:
 
 
 BASE = base_dir()
+RES = Path(getattr(sys, "_MEIPASS", BASE))
+UI_FILE = RES / "ui" / "index.html"
 CONFIG_PATH = BASE / "config.json"
 COMMANDS_PATH = BASE / "commands.json"
 MODELS = BASE / "models"
-SR = 16000
 
 DEFAULT_CONFIG = {
     "match_threshold": 80,
     "max_record_sec": 7,
-    "beep": True,
+    "beep": True,                # "Hey Tank" sonrasi bip: varsayilan ACIK
     "mic_device": None,
     "listening": True,
+    "wake_lang": "tr",          # tr | en
+    "cmd_engine": "whisper",    # whisper | light
 }
 
-WAKE_PHRASES = ["hey tank", "hay tank", "hey thank", "hey tang"]
-WAKE_GRAMMAR = json.dumps(WAKE_PHRASES + ["[unk]"])
+WAKE_GRAMMAR = {
+    "tr": ["hey tank", "ey tank", "hey tenk", "hey tanık"],
+    "en": ["hey tank", "hay tank", "hey thank", "hey tang"],
+}
+WAKE_TOKENS = {"tank", "tenk", "tanık", "thank", "tang"}
+
+
+def is_wake(text: str) -> bool:
+    return any(t in WAKE_TOKENS for t in text.split())
+
 
 # ----------------------------------------------------------------------------
-# Sistem eylemleri
+# Sistem eylemleri / acma
 # ----------------------------------------------------------------------------
 SYSTEM_ACTIONS = {
-    "Bilgisayarı kilitle": "lock",
-    "Sesi aç": "vol_up",
-    "Sesi kıs": "vol_down",
-    "Sesi kapat / aç (sessiz)": "mute",
-    "Müziği durdur / devam ettir": "play_pause",
-    "Sonraki şarkı": "next",
-    "Önceki şarkı": "prev",
+    "lock": "Bilgisayarı kilitle",
+    "vol_up": "Sesi aç",
+    "vol_down": "Sesi kıs",
+    "mute": "Sesi kapat / aç (sessiz)",
+    "play_pause": "Müziği durdur / devam ettir",
+    "next": "Sonraki şarkı",
+    "prev": "Önceki şarkı",
 }
-SYSTEM_NAMES = {v: k for k, v in SYSTEM_ACTIONS.items()}
 VK = {"vol_up": 0xAF, "vol_down": 0xAE, "mute": 0xAD,
       "play_pause": 0xB3, "next": 0xB0, "prev": 0xB1}
 
@@ -84,55 +94,54 @@ def run_system(name):
         press_key(VK[name])
 
 
-def open_target(target, args=""):
-    target = target.strip().strip('"')
-    if args:
-        os.startfile(target, arguments=args)
-    else:
-        os.startfile(target)
-
-
 def run_command(cmd, log):
-    if cmd.get("system"):
-        run_system(cmd["system"])
-        return
-    targets = cmd.get("targets") or []
-    if not targets:
-        log("Bu komutun hedefi yok.")
-        return
-    chosen = [random.choice(targets)] if cmd.get("mode") == "random" else targets
-    for t in chosen:
-        try:
-            open_target(t, cmd.get("args", ""))
-            log(f"Açıldı: {t}")
-        except Exception as e:
-            log(f"Açılamadı ({t}): {e}")
+    try:
+        if cmd.get("system"):
+            run_system(cmd["system"])
+            log(f"Çalıştı: {SYSTEM_ACTIONS.get(cmd['system'], cmd['system'])}")
+            return
+        targets = cmd.get("targets") or []
+        if not targets:
+            log("Bu komutun hedefi yok.")
+            return
+        chosen = [random.choice(targets)] if cmd.get("mode") == "random" else targets
+        for t in chosen:
+            t = t.strip().strip('"')
+            try:
+                if cmd.get("args"):
+                    os.startfile(t, arguments=cmd["args"])
+                else:
+                    os.startfile(t)
+                log(f"Açıldı: {t}")
+            except Exception as e:
+                log(f"Açılamadı ({t}): {e}")
+    except Exception as e:
+        log(f"Komut hatası: {e!r}")
 
 
 # ----------------------------------------------------------------------------
-# Varsayilan komutlar, kaydet/yukle
+# Komutlar
 # ----------------------------------------------------------------------------
 def _c(name, phrases, targets=None, system=None, mode="all", args="", enabled=True):
-    return {"name": name, "phrases": phrases, "targets": targets or [],
-            "system": system, "mode": mode, "args": args, "enabled": enabled}
+    return {"id": uuid.uuid4().hex[:8], "name": name, "phrases": phrases,
+            "targets": targets or [], "system": system, "mode": mode,
+            "args": args, "enabled": enabled}
 
 
 def default_commands():
     return [
         _c("YouTube", ["youtube aç", "youtube'u aç"], ["https://www.youtube.com"]),
         _c("Google", ["google aç", "google'ı aç"], ["https://www.google.com"]),
-        _c("Spotify (web)", ["spotify aç", "spotify'ı aç"], ["https://open.spotify.com"]),
+        _c("Spotify", ["spotify aç", "spotify'ı aç"], ["https://open.spotify.com"]),
         _c("Not Defteri", ["not defteri aç", "not defterini aç"], ["notepad.exe"]),
         _c("Hesap Makinesi", ["hesap makinesi aç", "hesap makinesini aç"], ["calc.exe"]),
         _c("Dosya Gezgini", ["dosya gezgini aç", "dosya gezginini aç"], ["explorer.exe"]),
-        _c("CS2 (Steam)", ["cs2 aç", "cs2'yi aç", "cs aç", "counter strike aç"],
-           ["steam://rungameid/730"]),
+        _c("CS2", ["cs2 aç", "cs2'yi aç", "cs aç", "counter strike aç"], ["steam://rungameid/730"]),
         _c("Bilgisayarı kilitle", ["bilgisayarı kilitle", "ekranı kilitle"], system="lock"),
         _c("Sesi aç", ["sesi aç", "sesi yükselt"], system="vol_up"),
         _c("Sesi kıs", ["sesi kıs", "sesi azalt"], system="vol_down"),
         _c("Sessiz", ["sesi kapat", "sessiz"], system="mute"),
-        _c("Müzik durdur/devam", ["müziği durdur", "müziği devam ettir", "müziği duraklat"],
-           system="play_pause"),
+        _c("Müzik durdur/devam", ["müziği durdur", "müziği devam ettir", "müziği duraklat"], system="play_pause"),
         _c("Sonraki şarkı", ["sonraki şarkı", "şarkıyı geç"], system="next"),
         _c("Önceki şarkı", ["önceki şarkı"], system="prev"),
     ]
@@ -147,13 +156,12 @@ def load_json(path, default):
 
 
 def save_json(path, data):
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = Path(str(path) + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
 
 
-# ----------------------------------------------------------------------------
-# Metin esleme (Turkce karakterleri sadelestirip bulanik karsilastirir)
-# ----------------------------------------------------------------------------
 _TR = str.maketrans("çğıöşüâîû", "cgiosuaiu")
 
 
@@ -164,11 +172,18 @@ def norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def vosk_phrase(p: str) -> str:
+    s = p.replace("İ", "i").replace("I", "ı").lower()
+    s = re.sub(r"['’`]", "", s)
+    s = re.sub(r"[^a-zçğıöşü0-9 ]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def best_match(text, commands, threshold):
     t = norm(text)
     if not t:
         return None, 0
-    best_cmd, best_score = None, 0
+    best_cmd, best = None, 0
     for cmd in commands:
         if not cmd.get("enabled", True):
             continue
@@ -179,129 +194,250 @@ def best_match(text, commands, threshold):
             score = fuzz.ratio(t, p)
             if f" {p} " in f" {t} ":
                 score = max(score, 92)
-            if score > best_score:
-                best_cmd, best_score = cmd, score
-    if best_score >= threshold:
-        return best_cmd, best_score
-    return None, best_score
+            if score > best:
+                best_cmd, best = cmd, score
+    return (best_cmd, best) if best >= threshold else (None, best)
 
 
 # ----------------------------------------------------------------------------
-# Ses motoru (ayri thread)
+# Windows ile baslat (HKCU\...\Run - yonetici izni gerekmez)
+# ----------------------------------------------------------------------------
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def _launch_string():
+    if getattr(sys, "frozen", False):
+        return f'"{sys.executable}" --tray'
+    return f'"{sys.executable}" "{Path(__file__).resolve()}" --tray'
+
+
+def get_autostart() -> bool:
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.QueryValueEx(k, "HeyTank")
+            return True
+    except Exception:
+        return False
+
+
+def set_autostart(on: bool):
+    import winreg
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+        if on:
+            winreg.SetValueEx(k, "HeyTank", 0, winreg.REG_SZ, _launch_string())
+        else:
+            try:
+                winreg.DeleteValue(k, "HeyTank")
+            except FileNotFoundError:
+                pass
+
+
+# ----------------------------------------------------------------------------
+# Cekirdek: ayarlar, komutlar, kayit, durum
+# ----------------------------------------------------------------------------
+class Core:
+    def __init__(self):
+        self.cfg = {**DEFAULT_CONFIG, **load_json(CONFIG_PATH, {})}
+        cmds = load_json(COMMANDS_PATH, None)
+        if not isinstance(cmds, list):
+            cmds = default_commands()
+        for c in cmds:
+            c.setdefault("id", uuid.uuid4().hex[:8])
+            c.setdefault("enabled", True)
+        self.commands = cmds
+        save_json(COMMANDS_PATH, self.commands)
+        self.lock = threading.Lock()
+        self.logs = deque(maxlen=400)
+        self.seq = 0
+        self.state = {"state": "loading", "status": "Başlatılıyor...", "level": 0.0,
+                      "heard": "", "last": None, "beat": time.time()}
+        self.engine = Engine(self)
+
+    def log(self, msg):
+        with self.lock:
+            self.seq += 1
+            self.logs.append((self.seq, f"[{datetime.datetime.now():%H:%M:%S}] {msg}"))
+
+    def set_state(self, state, status):
+        self.state["state"] = state
+        self.state["status"] = status
+
+    def save_commands(self):
+        save_json(COMMANDS_PATH, self.commands)
+
+    def save_cfg(self):
+        save_json(CONFIG_PATH, self.cfg)
+
+    def handle_text(self, text):
+        cmd, score = best_match(text, self.commands, self.cfg["match_threshold"])
+        now = f"{datetime.datetime.now():%H:%M}"
+        if cmd:
+            self.log(f"Eşleşti: {cmd['name']} (%{int(score)})")
+            self.state["last"] = {"text": text, "cmd": cmd["name"], "time": now}
+            threading.Thread(target=run_command, args=(cmd, self.log), daemon=True).start()
+        else:
+            self.log(f"Eşleşen komut yok (en iyi skor %{int(score)}).")
+            self.state["last"] = {"text": text, "cmd": None, "time": now}
+
+
+# ----------------------------------------------------------------------------
+# Ses motoru
 # ----------------------------------------------------------------------------
 class Engine(threading.Thread):
-    def __init__(self, app):
+    def __init__(self, core):
         super().__init__(daemon=True)
-        self.app = app
-        self.stop_flag = threading.Event()
+        self.core = core
+        self.stop = threading.Event()
         self.reopen = threading.Event()
-
-    def log(self, m):
-        self.app.q.put(("log", m))
-
-    def status(self, s):
-        self.app.q.put(("status", s))
+        self.models = {}
+        self.whisper = None
 
     def run(self):
-        try:
-            self._run()
-        except Exception as e:
-            self.log(f"HATA: {e!r}")
-            self.status("Hata - Kayıt sekmesine bak")
-
-    def _run(self):
-        import sounddevice as sd
-        from vosk import Model, KaldiRecognizer, SetLogLevel
-        from faster_whisper import WhisperModel
-
-        SetLogLevel(-1)
-        vosk_dir = MODELS / "vosk-wake"
-        whisper_dir = MODELS / "whisper"
-        if not vosk_dir.exists() or not whisper_dir.exists():
-            raise FileNotFoundError("models klasörü eksik (models/vosk-wake ve models/whisper)")
-
-        self.status("Modeller yükleniyor...")
-        wake_model = Model(str(vosk_dir))
-        whisper = WhisperModel(str(whisper_dir), device="cpu", compute_type="int8")
-        self.log("Modeller yüklendi.")
-
-        noise = deque(maxlen=60)
-        while not self.stop_flag.is_set():
-            self.reopen.clear()
-            aq = queue.Queue()
-
-            def cb(indata, frames, t, status):
-                aq.put(bytes(indata))
-
-            rec = KaldiRecognizer(wake_model, SR, WAKE_GRAMMAR)
-            with sd.RawInputStream(samplerate=SR, blocksize=2000,
-                                   device=self.app.cfg.get("mic_device"),
-                                   dtype="int16", channels=1, callback=cb):
-                self.log("Mikrofon açıldı.")
-                last_state = None
-                while not self.stop_flag.is_set() and not self.reopen.is_set():
-                    try:
-                        data = aq.get(timeout=0.5)
-                    except queue.Empty:
-                        continue
-                    if not self.app.cfg.get("listening", True):
-                        if last_state != "pause":
-                            self.status("Duraklatıldı")
-                            rec.Reset()
-                            last_state = "pause"
-                        continue
-                    if last_state != "wait":
-                        self.status("“Hey Tank” bekleniyor...")
-                        last_state = "wait"
-
-                    arr = np.frombuffer(data, dtype=np.int16)
-                    noise.append(float(np.sqrt(np.mean(arr.astype(np.float32) ** 2))))
-                    rec.AcceptWaveform(data)
-                    partial = json.loads(rec.PartialResult()).get("partial", "").strip()
-                    if partial in WAKE_PHRASES:
-                        rec.Reset()
-                        thr = max(300.0, float(np.median(noise)) * 2.5) if noise else 300.0
-                        self.handle_command(aq, whisper, thr)
-                        last_state = None
-
-    def handle_command(self, aq, whisper, thr):
-        import winsound
-        self.status("Dinliyorum...")
-        self.log("“Hey Tank” algılandı.")
-        if self.app.cfg.get("beep", True):
+        while not self.stop.is_set():
             try:
+                self.session()
+            except Exception as e:
+                self.core.log(f"Motor hatası: {e!r} - 3 sn sonra yeniden denenecek.")
+                self.core.set_state("error", "Hata - yeniden deneniyor")
+                self.stop.wait(3)
+
+    def get_model(self, name):
+        from vosk import Model
+        if name not in self.models:
+            d = MODELS / ("vosk-tr" if name == "tr" else "vosk-en")
+            if not d.exists():
+                raise FileNotFoundError(f"Model klasörü yok: {d}")
+            self.core.set_state("loading", "Model yükleniyor...")
+            self.models[name] = Model(str(d))
+        return self.models[name]
+
+    def get_whisper(self):
+        if self.whisper is None:
+            from faster_whisper import WhisperModel
+            d = MODELS / "whisper"
+            if not d.exists():
+                raise FileNotFoundError(f"Model klasörü yok: {d}")
+            self.core.set_state("loading", "Whisper yükleniyor...")
+            self.whisper = WhisperModel(str(d), device="cpu", compute_type="int8")
+            self.core.log("Whisper yüklendi.")
+        return self.whisper
+
+    def session(self):
+        import sounddevice as sd
+        from vosk import KaldiRecognizer, SetLogLevel
+        SetLogLevel(-1)
+        core, cfg = self.core, self.core.cfg
+        self.reopen.clear()
+
+        wake = cfg["wake_lang"] if cfg["wake_lang"] in WAKE_GRAMMAR else "tr"
+        need = {wake} | ({"tr"} if cfg["cmd_engine"] == "light" else set())
+        for k in list(self.models):
+            if k not in need:
+                del self.models[k]
+        if cfg["cmd_engine"] == "light" and self.whisper is not None:
+            self.whisper = None
+        gc.collect()
+        for n in need:
+            self.get_model(n)
+        wake_model = self.models[wake]
+        rec = KaldiRecognizer(wake_model, SR, json.dumps(WAKE_GRAMMAR[wake] + ["[unk]"]))
+
+        aq = queue.Queue()
+
+        def cb(indata, frames, t, status):
+            aq.put(bytes(indata))
+
+        noise = deque(maxlen=80)
+        with sd.RawInputStream(samplerate=SR, blocksize=2000, device=cfg.get("mic_device"),
+                               dtype="int16", channels=1, callback=cb):
+            core.log("Mikrofon açıldı.")
+            last, last_data = None, time.time()
+            while not self.stop.is_set() and not self.reopen.is_set():
+                core.state["beat"] = time.time()
+                try:
+                    data = aq.get(timeout=0.5)
+                except queue.Empty:
+                    if time.time() - last_data > 4:
+                        raise RuntimeError("Mikrofondan ses gelmiyor")
+                    continue
+                last_data = time.time()
+                arr = np.frombuffer(data, dtype=np.int16).astype(np.float32)
+                rms = float(np.sqrt(np.mean(arr ** 2)))
+                core.state["level"] = min(1.0, rms / 3000.0)
+
+                if not cfg.get("listening", True):
+                    if last != "pause":
+                        core.set_state("pause", "Dinleme kapalı")
+                        rec.Reset()
+                        last = "pause"
+                    continue
+                if last != "wait":
+                    core.set_state("wait", "“Hey Tank” bekleniyor")
+                    last = "wait"
+
+                noise.append(rms)
+                if rec.AcceptWaveform(data):
+                    txt = json.loads(rec.Result()).get("text", "")
+                else:
+                    txt = json.loads(rec.PartialResult()).get("partial", "")
+                if txt and txt != "[unk]":
+                    core.state["heard"] = txt
+                if is_wake(txt):
+                    rec.Reset()
+                    thr = float(min(2500.0, max(300.0, np.median(noise) * 2.5)))
+                    try:
+                        self.handle_command(aq, thr)
+                    except Exception as e:
+                        core.log(f"Komut hatası: {e!r}")
+                    self.flush(aq)
+                    rec.Reset()
+                    last = None
+
+    @staticmethod
+    def flush(aq):
+        while not aq.empty():
+            try:
+                aq.get_nowait()
+            except queue.Empty:
+                break
+
+    def handle_command(self, aq, thr):
+        core, cfg = self.core, self.core.cfg
+        core.set_state("listen", "Dinliyorum...")
+        core.log("“Hey Tank” algılandı.")
+        if cfg.get("beep", True):
+            try:
+                import winsound
                 winsound.Beep(900, 120)
             except Exception:
                 pass
-        while not aq.empty():
-            aq.get_nowait()
-
-        audio = self.record(aq, thr, self.app.cfg.get("max_record_sec", 7))
+        self.flush(aq)
+        audio = self.record(aq, thr, cfg.get("max_record_sec", 7))
         if audio is None:
-            self.log("Konuşma algılanmadı.")
+            core.log("Konuşma algılanmadı.")
             return
-        self.status("Anlaşılıyor...")
-        cmds = [c for c in self.app.commands if c.get("enabled", True)]
-        prompt = ", ".join(p for c in cmds for p in c.get("phrases", []))[:350]
-        segs, _ = whisper.transcribe(
-            audio.astype(np.float32) / 32768.0, language="tr", beam_size=1,
-            initial_prompt=prompt or None, condition_on_previous_text=False)
-        text = " ".join(s.text for s in segs).strip()
-        self.log(f"Duyulan: “{text}”")
-        self.app.q.put(("match", text))
-        while not aq.empty():
-            aq.get_nowait()
+        core.set_state("think", "Anlaşılıyor...")
+        cmds = [c for c in core.commands if c.get("enabled", True)]
+        if cfg["cmd_engine"] == "light":
+            text = self.transcribe_light(audio, cmds)
+        else:
+            text = self.transcribe_whisper(audio, cmds)
+        core.log(f"Duyulan: “{text}”")
+        core.handle_text(text)
 
     def record(self, aq, thr, max_sec):
         chunks, started, silence = [], False, 0.0
         t0 = time.time()
-        while time.time() - t0 < max_sec and not self.stop_flag.is_set():
+        while time.time() - t0 < max_sec and not self.stop.is_set():
+            self.core.state["beat"] = time.time()
             try:
                 d = aq.get(timeout=0.5)
             except queue.Empty:
                 continue
             a = np.frombuffer(d, dtype=np.int16)
             rms = float(np.sqrt(np.mean(a.astype(np.float32) ** 2)))
+            self.core.state["level"] = min(1.0, rms / 3000.0)
             chunks.append(a)
             if rms > thr:
                 started, silence = True, 0.0
@@ -311,360 +447,221 @@ class Engine(threading.Thread):
                 break
             if not started and time.time() - t0 > 4:
                 return None
-        if not started or not chunks:
-            return None
-        return np.concatenate(chunks)
+        return np.concatenate(chunks) if (started and chunks) else None
+
+    def transcribe_whisper(self, audio, cmds):
+        w = self.get_whisper()
+        self.core.set_state("think", "Anlaşılıyor...")
+        prompt = ", ".join(p for c in cmds for p in c.get("phrases", []))[:350]
+        segs, _ = w.transcribe(audio.astype(np.float32) / 32768.0, language="tr",
+                               beam_size=1, initial_prompt=prompt or None,
+                               condition_on_previous_text=False)
+        return " ".join(s.text for s in segs).strip()
+
+    def transcribe_light(self, audio, cmds):
+        from vosk import KaldiRecognizer
+        phrases = sorted({vosk_phrase(p) for c in cmds for p in c.get("phrases", []) if vosk_phrase(p)})
+        rec = KaldiRecognizer(self.models["tr"], SR, json.dumps(phrases + ["[unk]"], ensure_ascii=False))
+        rec.AcceptWaveform(audio.tobytes())
+        return json.loads(rec.FinalResult()).get("text", "").replace("[unk]", "").strip()
 
 
 # ----------------------------------------------------------------------------
-# Arayuz
+# JS <-> Python koprusu (alt cizgili ozellikler pywebview'a gorunmez)
 # ----------------------------------------------------------------------------
-KIND_OPEN = "Site / program / dosya aç"
-KIND_SYS = "Sistem eylemi"
-MODE_ALL = "Hepsini aç"
-MODE_RANDOM = "Rastgele birini aç"
+class Api:
+    def __init__(self, core, app):
+        self._core = core
+        self._app = app
 
-
-class EditDialog(ctk.CTkToplevel):
-    def __init__(self, parent, cmd, on_save):
-        super().__init__(parent)
-        self.title("Komut")
-        self.geometry("540x680")
-        self.cmd = cmd
-        self.on_save = on_save
-        self.transient(parent)
-        pad = dict(padx=16, pady=(10, 2), anchor="w")
-
-        ctk.CTkLabel(self, text="Komut adı").pack(**pad)
-        self.name = ctk.CTkEntry(self, width=500)
-        self.name.pack(padx=16)
-
-        ctk.CTkLabel(self, text="Söyleyeceğin cümleler (her satıra bir tane)").pack(**pad)
-        self.phrases = ctk.CTkTextbox(self, width=500, height=90)
-        self.phrases.pack(padx=16)
-
-        ctk.CTkLabel(self, text="Ne yapsın?").pack(**pad)
-        self.kind = ctk.CTkOptionMenu(self, values=[KIND_OPEN, KIND_SYS], width=500,
-                                      command=lambda _v: self.toggle())
-        self.kind.pack(padx=16)
-
-        self.open_frame = ctk.CTkFrame(self, fg_color="transparent")
-        ctk.CTkLabel(self.open_frame, text="Hedefler (her satıra bir tane: site, .exe yolu, steam://... vb.)").pack(**pad)
-        self.targets = ctk.CTkTextbox(self.open_frame, width=500, height=110)
-        self.targets.pack(padx=16)
-        ctk.CTkButton(self.open_frame, text="Dosya seç (.exe vb.)", width=180,
-                      command=self.pick_file).pack(padx=16, pady=6, anchor="w")
-        ctk.CTkLabel(self.open_frame, text="Birden fazla hedef varsa").pack(**pad)
-        self.mode = ctk.CTkOptionMenu(self.open_frame, values=[MODE_ALL, MODE_RANDOM], width=500)
-        self.mode.pack(padx=16)
-        ctk.CTkLabel(self.open_frame, text="Program parametreleri (isteğe bağlı)").pack(**pad)
-        self.args = ctk.CTkEntry(self.open_frame, width=500)
-        self.args.pack(padx=16)
-
-        self.sys_frame = ctk.CTkFrame(self, fg_color="transparent")
-        ctk.CTkLabel(self.sys_frame, text="Eylem").pack(**pad)
-        self.sysmenu = ctk.CTkOptionMenu(self.sys_frame, values=list(SYSTEM_ACTIONS), width=500)
-        self.sysmenu.pack(padx=16)
-
-        self.btns = ctk.CTkFrame(self, fg_color="transparent")
-        ctk.CTkButton(self.btns, text="Kaydet", command=self.save).pack(side="left", padx=8)
-        ctk.CTkButton(self.btns, text="İptal", fg_color="gray40", command=self.destroy).pack(side="left", padx=8)
-
-        # mevcut degerleri doldur
-        self.name.insert(0, cmd.get("name", ""))
-        self.phrases.insert("1.0", "\n".join(cmd.get("phrases", [])))
-        if cmd.get("system"):
-            self.kind.set(KIND_SYS)
-            self.sysmenu.set(SYSTEM_NAMES.get(cmd["system"], list(SYSTEM_ACTIONS)[0]))
-        self.targets.insert("1.0", "\n".join(cmd.get("targets", [])))
-        self.mode.set(MODE_RANDOM if cmd.get("mode") == "random" else MODE_ALL)
-        self.args.insert(0, cmd.get("args", ""))
-        self.toggle()
-        self.after(150, self.lift)
-        self.after(150, self.focus)
-
-    def toggle(self):
-        self.open_frame.pack_forget()
-        self.sys_frame.pack_forget()
-        self.btns.pack_forget()
-        (self.sys_frame if self.kind.get() == KIND_SYS else self.open_frame).pack(fill="x")
-        self.btns.pack(pady=14)
-
-    def pick_file(self):
-        p = filedialog.askopenfilename(parent=self, title="Program / dosya seç")
-        if p:
-            cur = self.targets.get("1.0", "end").strip()
-            self.targets.insert("end", ("\n" if cur else "") + p.replace("/", "\\"))
-
-    def save(self):
-        name = self.name.get().strip()
-        phrases = [l.strip() for l in self.phrases.get("1.0", "end").splitlines() if l.strip()]
-        if not name or not phrases:
-            messagebox.showwarning("Eksik bilgi", "Ad ve en az bir cümle gerekli.", parent=self)
-            return
-        out = dict(self.cmd)
-        out.update(name=name, phrases=phrases)
-        if self.kind.get() == KIND_SYS:
-            out.update(system=SYSTEM_ACTIONS[self.sysmenu.get()], targets=[], args="")
-        else:
-            targets = [l.strip() for l in self.targets.get("1.0", "end").splitlines() if l.strip()]
-            if not targets:
-                messagebox.showwarning("Eksik bilgi", "En az bir hedef gerekli.", parent=self)
-                return
-            out.update(system=None, targets=targets,
-                       mode="random" if self.mode.get() == MODE_RANDOM else "all",
-                       args=self.args.get().strip())
-        self.on_save(out)
-        self.destroy()
-
-
-class App(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
-        self.title("Hey Tank")
-        self.geometry("820x620")
-        self.minsize(700, 500)
-
-        self.cfg = {**DEFAULT_CONFIG, **load_json(CONFIG_PATH, {})}
-        self.commands = load_json(COMMANDS_PATH, None)
-        if not isinstance(self.commands, list):
-            self.commands = default_commands()
-            save_json(COMMANDS_PATH, self.commands)
-        self.q = queue.Queue()
-        self.tray = None
-
-        self.build_ui()
-        self.refresh_list()
-        self.engine = Engine(self)
-        self.engine.start()
-        self.setup_tray()
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
-        self.after(100, self.poll)
-
-    # ---- arayuz ----
-    def build_ui(self):
-        top = ctk.CTkFrame(self)
-        top.pack(fill="x", padx=12, pady=(12, 6))
-        self.status_lbl = ctk.CTkLabel(top, text="Başlatılıyor...", font=ctk.CTkFont(size=16, weight="bold"))
-        self.status_lbl.pack(side="left", padx=12, pady=10)
-        self.listen_var = ctk.BooleanVar(value=self.cfg["listening"])
-        ctk.CTkSwitch(top, text="Dinleme açık", variable=self.listen_var,
-                      command=self.on_listen_toggle).pack(side="right", padx=12)
-
-        tabs = ctk.CTkTabview(self)
-        tabs.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        t_cmd, t_set, t_log = tabs.add("Komutlar"), tabs.add("Ayarlar"), tabs.add("Kayıt")
-
-        # komutlar
-        bar = ctk.CTkFrame(t_cmd, fg_color="transparent")
-        bar.pack(fill="x")
-        ctk.CTkButton(bar, text="+ Yeni komut", command=self.add_cmd).pack(side="left")
-        self.list_frame = ctk.CTkScrollableFrame(t_cmd)
-        self.list_frame.pack(fill="both", expand=True, pady=8)
-
-        # ayarlar
-        self.mic_map = {"Varsayılan mikrofon": None}
+    def init(self):
+        mics = [{"id": None, "name": "Varsayılan mikrofon"}]
         try:
             import sounddevice as sd
+            ha = sd.default.hostapi
             for i, d in enumerate(sd.query_devices()):
-                if d["max_input_channels"] > 0:
-                    self.mic_map[f"{i}: {d['name']}"] = i
+                if d["max_input_channels"] > 0 and d["hostapi"] == ha:
+                    mics.append({"id": i, "name": d["name"]})
         except Exception:
             pass
-        cur = next((k for k, v in self.mic_map.items() if v == self.cfg["mic_device"]), "Varsayılan mikrofon")
-        ctk.CTkLabel(t_set, text="Mikrofon").pack(anchor="w", pady=(8, 2))
-        self.mic_menu = ctk.CTkOptionMenu(t_set, values=list(self.mic_map), width=560)
-        self.mic_menu.set(cur)
-        self.mic_menu.pack(anchor="w")
-        ctk.CTkButton(t_set, text="Mikrofonu uygula", width=160,
-                      command=self.apply_mic).pack(anchor="w", pady=6)
+        return {"commands": self._core.commands, "config": self._core.cfg, "mics": mics,
+                "system_actions": SYSTEM_ACTIONS, "autostart": get_autostart(), "version": VERSION}
 
-        self.thr_lbl = ctk.CTkLabel(t_set, text="")
-        self.thr_lbl.pack(anchor="w", pady=(14, 2))
-        self.thr_slider = ctk.CTkSlider(t_set, from_=60, to=100, number_of_steps=40, width=360,
-                                        command=self.on_thr)
-        self.thr_slider.set(self.cfg["match_threshold"])
-        self.thr_slider.pack(anchor="w")
-        self.on_thr(self.cfg["match_threshold"])
+    def poll(self, since):
+        c = self._core
+        with c.lock:
+            logs = [l for l in c.logs if l[0] > since]
+        s = dict(c.state)
+        s["beat_age"] = time.time() - s.pop("beat", time.time())
+        s["logs"] = [l[1] for l in logs]
+        s["seq"] = logs[-1][0] if logs else since
+        return s
 
-        self.rec_lbl = ctk.CTkLabel(t_set, text="")
-        self.rec_lbl.pack(anchor="w", pady=(14, 2))
-        self.rec_slider = ctk.CTkSlider(t_set, from_=3, to=12, number_of_steps=9, width=360,
-                                        command=self.on_rec)
-        self.rec_slider.set(self.cfg["max_record_sec"])
-        self.rec_slider.pack(anchor="w")
-        self.on_rec(self.cfg["max_record_sec"])
-
-        self.beep_var = ctk.BooleanVar(value=self.cfg["beep"])
-        ctk.CTkSwitch(t_set, text="“Hey Tank” sonrası bip sesi", variable=self.beep_var,
-                      command=self.on_beep).pack(anchor="w", pady=16)
-
-        # kayit
-        self.log_box = ctk.CTkTextbox(t_log, state="disabled")
-        self.log_box.pack(fill="both", expand=True)
-        row = ctk.CTkFrame(t_log, fg_color="transparent")
-        row.pack(fill="x", pady=(8, 0))
-        self.try_entry = ctk.CTkEntry(row, placeholder_text="Komutu yazarak dene (örn: youtube aç)")
-        self.try_entry.pack(side="left", fill="x", expand=True)
-        self.try_entry.bind("<Return>", lambda e: self.try_text())
-        ctk.CTkButton(row, text="Dene", width=80, command=self.try_text).pack(side="left", padx=(8, 0))
-
-    # ---- komut listesi ----
-    def refresh_list(self):
-        for w in self.list_frame.winfo_children():
-            w.destroy()
-        for i, cmd in enumerate(self.commands):
-            row = ctk.CTkFrame(self.list_frame)
-            row.pack(fill="x", pady=3, padx=2)
-            var = ctk.BooleanVar(value=cmd.get("enabled", True))
-            ctk.CTkSwitch(row, text="", width=46, variable=var,
-                          command=lambda i=i, v=var: self.toggle_cmd(i, v)).pack(side="left", padx=8)
-            phrases = ", ".join(f"“{p}”" for p in cmd.get("phrases", [])[:3])
-            ctk.CTkLabel(row, text=f"{cmd['name']}\n{phrases}", justify="left", anchor="w").pack(
-                side="left", fill="x", expand=True, padx=4, pady=6)
-            ctk.CTkButton(row, text="Sil", width=50, fg_color="#8b2b2b",
-                          command=lambda i=i: self.delete_cmd(i)).pack(side="right", padx=4)
-            ctk.CTkButton(row, text="Düzenle", width=70,
-                          command=lambda i=i: self.edit_cmd(i)).pack(side="right", padx=4)
-            ctk.CTkButton(row, text="▶", width=36, fg_color="gray35",
-                          command=lambda i=i: self.test_cmd(i)).pack(side="right", padx=4)
-
-    def save_commands(self):
-        save_json(COMMANDS_PATH, self.commands)
-
-    def toggle_cmd(self, i, var):
-        self.commands[i]["enabled"] = bool(var.get())
-        self.save_commands()
-
-    def add_cmd(self):
-        new = _c("Yeni komut", [], [])
-
-        def done(c):
-            self.commands.append(c)
-            self.save_commands()
-            self.refresh_list()
-        EditDialog(self, new, done)
-
-    def edit_cmd(self, i):
-        def done(c):
-            self.commands[i] = c
-            self.save_commands()
-            self.refresh_list()
-        EditDialog(self, self.commands[i], done)
-
-    def delete_cmd(self, i):
-        if messagebox.askyesno("Sil", f"“{self.commands[i]['name']}” silinsin mi?"):
-            del self.commands[i]
-            self.save_commands()
-            self.refresh_list()
-
-    def test_cmd(self, i):
-        self.add_log(f"Deneme: {self.commands[i]['name']}")
-        run_command(self.commands[i], self.add_log)
-
-    def try_text(self):
-        text = self.try_entry.get().strip()
-        if text:
-            self.handle_match(text)
-
-    # ---- ayarlar ----
-    def save_cfg(self):
-        save_json(CONFIG_PATH, self.cfg)
-
-    def on_listen_toggle(self):
-        self.cfg["listening"] = bool(self.listen_var.get())
-        self.save_cfg()
-
-    def on_beep(self):
-        self.cfg["beep"] = bool(self.beep_var.get())
-        self.save_cfg()
-
-    def on_thr(self, v):
-        self.cfg["match_threshold"] = int(float(v))
-        self.thr_lbl.configure(text=f"Eşleşme hassasiyeti: %{self.cfg['match_threshold']} "
-                                    "(düşük = daha toleranslı, yanlış tetikleme riski artar)")
-        self.save_cfg()
-
-    def on_rec(self, v):
-        self.cfg["max_record_sec"] = int(float(v))
-        self.rec_lbl.configure(text=f"Komut için en fazla dinleme süresi: {self.cfg['max_record_sec']} sn")
-        self.save_cfg()
-
-    def apply_mic(self):
-        self.cfg["mic_device"] = self.mic_map.get(self.mic_menu.get())
-        self.save_cfg()
-        self.engine.reopen.set()
-        self.add_log("Mikrofon yeniden başlatılıyor...")
-
-    # ---- olaylar ----
-    def handle_match(self, text):
-        cmd, score = best_match(text, self.commands, self.cfg["match_threshold"])
-        if cmd:
-            self.add_log(f"Eşleşti: {cmd['name']} (%{int(score)})")
-            threading.Thread(target=run_command, args=(cmd, self.add_log), daemon=True).start()
+    def save_command(self, cmd):
+        c = self._core
+        cmd["phrases"] = [p.strip() for p in cmd.get("phrases", []) if p.strip()]
+        cmd["targets"] = [t.strip() for t in cmd.get("targets", []) if t.strip()]
+        if not cmd.get("id"):
+            cmd["id"] = uuid.uuid4().hex[:8]
+            cmd["enabled"] = True
+            c.commands.append(cmd)
         else:
-            self.add_log(f"Eşleşen komut yok (en iyi skor %{int(score)}).")
+            for i, x in enumerate(c.commands):
+                if x["id"] == cmd["id"]:
+                    c.commands[i] = cmd
+        c.save_commands()
+        return c.commands
 
-    def add_log(self, msg):
-        ts = datetime.datetime.now().strftime("%H:%M:%S")
-        self.q.put(("logline", f"[{ts}] {msg}\n"))
+    def delete_command(self, cid):
+        c = self._core
+        c.commands[:] = [x for x in c.commands if x["id"] != cid]
+        c.save_commands()
+        return c.commands
 
-    def poll(self):
+    def toggle_command(self, cid, enabled):
+        for x in self._core.commands:
+            if x["id"] == cid:
+                x["enabled"] = bool(enabled)
+        self._core.save_commands()
+        return True
+
+    def test_command(self, cid):
+        for x in self._core.commands:
+            if x["id"] == cid:
+                self._core.log(f"Deneme: {x['name']}")
+                threading.Thread(target=run_command, args=(x, self._core.log), daemon=True).start()
+        return True
+
+    def try_text(self, text):
+        self._core.log(f"Yazılan: “{text}”")
+        self._core.handle_text(text)
+        return True
+
+    def set_config(self, key, value):
+        c = self._core
+        if key not in DEFAULT_CONFIG:
+            return False
+        if key == "mic_device":
+            value = None if value in (None, "") else int(value)
+        elif key in ("match_threshold", "max_record_sec"):
+            value = int(value)
+        elif key in ("beep", "listening"):
+            value = bool(value)
+        c.cfg[key] = value
+        c.save_cfg()
+        if key in ("mic_device", "wake_lang", "cmd_engine"):
+            c.engine.reopen.set()
+        return True
+
+    def set_autostart(self, on):
         try:
-            while True:
-                kind, val = self.q.get_nowait()
-                if kind == "status":
-                    self.status_lbl.configure(text=val)
-                elif kind == "log":
-                    self.add_log(val)
-                elif kind == "match":
-                    self.handle_match(val)
-                elif kind == "logline":
-                    self.log_box.configure(state="normal")
-                    self.log_box.insert("end", val)
-                    self.log_box.see("end")
-                    self.log_box.configure(state="disabled")
-        except queue.Empty:
-            pass
-        self.after(100, self.poll)
+            set_autostart(bool(on))
+        except Exception as e:
+            self._core.log(f"Başlangıç ayarı yazılamadı: {e!r}")
+        return get_autostart()
 
-    # ---- tepsi / kapatma ----
+    def pick_file(self):
+        import webview
+        try:
+            kind = webview.FileDialog.OPEN
+        except AttributeError:
+            kind = webview.OPEN_DIALOG
+        r = self._app.window.create_file_dialog(kind)
+        return r[0] if r else None
+
+    def hide(self):
+        self._app.hide()
+        return True
+
+
+# ----------------------------------------------------------------------------
+# Uygulama / pencere / tepsi
+# ----------------------------------------------------------------------------
+def message_box(text, title="Hey Tank"):
+    try:
+        ctypes.windll.user32.MessageBoxW(0, text, title, 0x10)
+    except Exception:
+        pass
+
+
+class App:
+    def __init__(self, hidden):
+        self.core = Core()
+        self.hidden = hidden
+        self.window = None
+        self.tray = None
+
+    def hide(self):
+        if self.window:
+            self.window.hide()
+
+    def show(self):
+        if self.window:
+            self.window.show()
+
+    def quit(self):
+        self.core.engine.stop.set()
+        try:
+            if self.tray:
+                self.tray.stop()
+        except Exception:
+            pass
+        os._exit(0)
+
+    def on_closing(self):
+        if self.tray:
+            self.window.hide()
+            return False
+        return True
+
     def setup_tray(self):
         try:
             import pystray
             from PIL import Image, ImageDraw
-            img = Image.new("RGB", (64, 64), "#1f6aa5")
-            ImageDraw.Draw(img).rectangle((16, 22, 48, 42), fill="white")
-            menu = pystray.Menu(
-                pystray.MenuItem("Göster", lambda: self.after(0, self.show), default=True),
-                pystray.MenuItem("Çıkış", lambda: self.after(0, self.quit_app)))
+            img = Image.new("RGB", (64, 64), "#0E0E0E")
+            d = ImageDraw.Draw(img)
+            d.rounded_rectangle((24, 10, 40, 38), radius=8, outline="#EDEDED", width=4)
+            d.arc((14, 22, 50, 50), 0, 180, fill="#EDEDED", width=4)
+            d.line((32, 50, 32, 58), fill="#EDEDED", width=4)
+            menu = pystray.Menu(pystray.MenuItem("Göster", lambda: self.show(), default=True),
+                                pystray.MenuItem("Çıkış", lambda: self.quit()))
             self.tray = pystray.Icon("HeyTank", img, "Hey Tank", menu)
             self.tray.run_detached()
-        except Exception:
+        except Exception as e:
+            self.core.log(f"Tepsi simgesi açılamadı: {e!r}")
             self.tray = None
 
-    def show(self):
-        self.deiconify()
-        self.lift()
-
-    def on_close(self):
-        if self.tray:
-            self.withdraw()
-        else:
-            self.quit_app()
-
-    def quit_app(self):
-        self.engine.stop_flag.set()
-        if self.tray:
+    def run(self):
+        import webview
+        if get_autostart():
             try:
-                self.tray.stop()
+                set_autostart(True)   # klasor tasinmissa yolu guncelle
             except Exception:
                 pass
-        self.destroy()
-        os._exit(0)
+        self.core.engine.start()
+        self.setup_tray()
+        self.window = webview.create_window(
+            "Hey Tank", url=str(UI_FILE), js_api=Api(self.core, self),
+            width=1100, height=680, min_size=(900, 560),
+            background_color="#0E0E0E", hidden=self.hidden)
+        self.window.events.closing += self.on_closing
+        try:
+            webview.start(gui="edgechromium", storage_path=str(BASE / "webview-data"))
+        except Exception as e:
+            message_box("Arayüz açılamadı. Microsoft Edge WebView2 Runtime gerekli "
+                        "(Windows 11'de hazır gelir).\n\n" + repr(e))
+        self.quit()
+
+
+def single_instance():
+    try:
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        k.CreateMutexW(None, False, "HeyTank_single_instance")
+        return ctypes.get_last_error() != 183
+    except Exception:
+        return True
 
 
 if __name__ == "__main__":
-    App().mainloop()
+    if single_instance():
+        App(hidden="--tray" in sys.argv).run()

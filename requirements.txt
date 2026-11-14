@@ -3,6 +3,6 @@ vosk
 sounddevice
 numpy
 rapidfuzz
-customtkinter
+pywebview
 pystray
 pillow

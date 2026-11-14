@@ -1,11 +1,14 @@
 # Hey Tank
 
-Windows için portable, tamamen çevrimdışı ve ücretsiz sesli komut asistanı.
+Windows için portable, çevrimdışı, ücretsiz Türkçe sesli komut asistanı.
 "Hey Tank" de, sonra komutunu söyle (örn. "youtube aç").
 
-## Kullanım
-1. GitHub'da **Actions → Build HeyTank → Run workflow** (ya da `v1.0.0` gibi bir tag at).
-2. Bitince çıkan **HeyTank-portable** dosyasını indir, klasöre çıkar.
-3. `HeyTank.exe` çalıştır. Komutlar, ayarlar ve modeller hep aynı klasörde kalır.
+## Derleme
+GitHub → **Actions → Build HeyTank → Run workflow**. Bitince **HeyTank-portable**
+artifact'ını indirip klasöre çıkar, `HeyTank.exe`'yi çalıştır.
 
-Komutları arayüzden ekle/sil/aç/kapat. Kayıt sekmesinde yazarak komut deneyebilirsin.
+Her şey (ayarlar, komutlar, modeller, WebView önbelleği) exe'nin yanındaki klasörde kalır.
+Tek istisna: "Windows ile başlat" açılırsa HKCU\...\Run altına bir kayıt yazılır (kapatınca silinir).
+
+## Gereksinim
+Microsoft Edge WebView2 Runtime (Windows 11'de hazır, güncel Windows 10'da genelde var).
