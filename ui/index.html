@@ -203,7 +203,11 @@ function renderSettings(){
   <div class="sr"><div>Model bellekte kalma süresi<small>Komuttan sonra model bu kadar RAM'de bekler, sonra boşaltılır (RAM tasarrufu). Konuşurken arka planda yüklenir.</small></div>${sl("keep_warm",[[0,"Hemen bırak"],[30,"30 saniye"],[300,"5 dakika"],[-1,"Hep açık"]])}</div>
   <div class="sr"><div>Eşleşme hassasiyeti: %<span id="mt">${c.match_threshold}</span><small>Düşük = daha toleranslı, yanlış tetikleme riski artar.</small></div><input type="range" min="60" max="100" value="${c.match_threshold}" data-r="match_threshold"></div>
   <div class="sr"><div>En fazla dinleme süresi: <span id="ms">${c.max_record_sec}</span> sn</div><input type="range" min="3" max="12" value="${c.max_record_sec}" data-r="max_record_sec"></div>
-  <div class="sr"><div>“Hey Tank” sonrası bip sesi</div>${tg("beep",c.beep)}</div>
+  <div class="sr"><div>Uyandırma hassasiyeti<small>Yanlışlıkla uyanıyorsa “Sıkı”, hiç uyanmıyorsa “Hassas” seç.</small></div>${sl("wake_sens",[["strict","Sıkı (en az yanlış uyanma)"],["normal","Dengeli"],["sensitive","Hassas (en hızlı)"]])}</div>
+  <div class="sr"><div>Kısayol: Ctrl+Alt+T<small>Uyandırma kelimesi olmadan dinlemeyi başlatır.</small></div>${tg("hotkey",c.hotkey!==false)}</div>
+  <div class="sr"><div>Bip sesi<small>Seçince çalar.</small></div><div style="display:flex;gap:8px">${sl("beep_sound",[["rising","Yükselen"],["classic","Klasik bip"],["double","Çift bip"],["bell","Çan"],["tick","Tık (çok kısa)"],["system","Windows sesi"],["none","Sessiz"]])}<button class="bt" data-test="beep">Dene</button></div></div>
+  <div class="sr"><div>Bip ses seviyesi: %<span id="bv">${c.beep_volume}</span></div><input type="range" min="0" max="100" value="${c.beep_volume}" data-r="beep_volume"></div>
+  <div class="sr"><div>Onay / hata sesi<small>Komut çalışınca kısa onay, anlaşılmayınca alçak ses.</small></div>${tg("feedback_sounds",c.feedback_sounds!==false)}</div>
   <div class="sr"><div>Windows ile başlat<small>Açılışta pencere göstermeden tepsiye iner. Kapatınca kayıt tamamen silinir.</small></div>${tg("autostart",S.auto)}</div>`;
 }
 
@@ -216,18 +220,21 @@ document.addEventListener("click",async e=>{
   if(t.dataset.r){api().test_command(t.dataset.r);return}
   if(t.dataset.e){openEdit(t.dataset.e);return}
   if(t.dataset.d){const c=S.cmds.find(x=>x.id===t.dataset.d);if(confirm(`“${c.name}” silinsin mi?`)){S.cmds=await api().delete_command(c.id);setView("commands")}return}
-  if(t.dataset.tg==="beep"){S.cfg.beep=!S.cfg.beep;await api().set_config("beep",S.cfg.beep);renderSettings();return}
+  if(t.dataset.test==="beep"){api().test_beep(S.cfg.beep_sound,S.cfg.beep_volume);return}
+  if(t.dataset.tg==="hotkey"||t.dataset.tg==="feedback_sounds"){const k=t.dataset.tg;S.cfg[k]=!(S.cfg[k]!==false);await api().set_config(k,S.cfg[k]);renderSettings();return}
   if(t.dataset.tg==="strict_wake"){S.cfg.strict_wake=!(S.cfg.strict_wake!==false);await api().set_config("strict_wake",S.cfg.strict_wake);renderSettings();return}
   if(t.dataset.tg==="autostart"){S.auto=await api().set_autostart(!S.auto);renderSettings();return}
   if(t.classList.contains("rw")&&t.dataset.id){sel=t.dataset.id;renderList()}
 });
 document.addEventListener("change",async e=>{
+  if(e.target.dataset.r==="beep_volume"){api().test_beep(S.cfg.beep_sound,S.cfg.beep_volume);return}
   const k=e.target.dataset.c; if(!k)return;
   S.cfg[k]=e.target.value; await api().set_config(k,e.target.value);
+  if(k==="beep_sound")api().test_beep(e.target.value,S.cfg.beep_volume);
 });
 document.addEventListener("input",async e=>{
   const k=e.target.dataset.r;
-  if(k&&e.target.type==="range"){const v=+e.target.value;S.cfg[k]=v;$(k==="match_threshold"?"mt":"ms").textContent=v;await api().set_config(k,v)}
+  if(k&&e.target.type==="range"){const v=+e.target.value;S.cfg[k]=v;$(({match_threshold:"mt",max_record_sec:"ms",beep_volume:"bv"})[k]).textContent=v;await api().set_config(k,v)}
   if(e.target.id==="q")renderList();
 });
 $("new").onclick=()=>openEdit("");

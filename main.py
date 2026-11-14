@@ -18,6 +18,9 @@ import ctypes
 import datetime
 import threading
 import secrets
+import base64
+import io
+import wave
 import subprocess
 import http.server
 from collections import deque
@@ -51,8 +54,15 @@ DEFAULT_CONFIG = {
     "mic_device": None,
     "listening": True,
     "wake_lang": "tr",          # tr | en
-    "cmd_engine": "turbo",      # turbo (dogru) | small (hizli) | light (hafif)
-    "keep_warm": 30,            # Whisper bellekte kalma suresi (sn): 0 hemen birak, -1 hep acik
+    "cmd_engine": "small",      # turbo (dogru, CPU'da yavas) | small (hizli) | light (hafif)
+    "keep_warm": 120,           # Whisper bellekte kalma suresi (sn): 0 hemen birak, -1 hep acik
+    "cfg_ver": 2,
+    "wake_sens": "normal",      # strict | normal | sensitive
+    "beep_sound": "rising",     # rising | classic | double | bell | tick | system | none
+    "beep_volume": 60,
+    "feedback_sounds": True,    # komut calisinca / anlasilmayinca kisa ses
+    "hotkey": True,             # Ctrl+Alt+T ile uyandirma kelimesiz dinleme
+    "end_silence": 0.7,         # konusma bitti sayilmadan onceki sessizlik (sn)
     "strict_wake": True,        # True: "hey" + "tank" birlikte gerekir
 }
 
@@ -71,14 +81,14 @@ def is_wake(text: str, strict: bool = True) -> bool:
     return any(a in HEY_TOKENS and b in TANK_TOKENS for a, b in zip(t, t[1:]))
 
 
-def build_wake(model, wake, strict):
+def build_wake(model, wake, strict, limit=None):
     """Modelin sozlugunde olmayan kelimeleri ayiklar. 'hey' bilinmiyorsa tek 'tank'a duser."""
     def known(w):
         try:
             return model.vosk_model_find_word(w) >= 0
         except Exception:
             return True
-    phrases = [p for p in WAKE_GRAMMAR[wake] if all(known(w) for w in p.split())]
+    phrases = [p for p in WAKE_GRAMMAR[wake][:limit] if all(known(w) for w in p.split())]
     if strict and phrases:
         return phrases, True
     singles = [w for w in ("tank", "tenk", "tanık", "thank") if known(w)] or ["tank"]
@@ -93,35 +103,166 @@ SYSTEM_ACTIONS = {
     "vol_up": "Sesi aç",
     "vol_down": "Sesi kıs",
     "mute": "Sesi kapat / aç (sessiz)",
-    "play_pause": "Müziği durdur / devam ettir",
+    "media_pause": "Müziği durdur (yalnızca çalıyorsa)",
+    "media_play": "Müziği başlat / devam ettir",
+    "play_pause": "Oynat/Duraklat tuşu (aç-kapa)",
     "next": "Sonraki şarkı",
     "prev": "Önceki şarkı",
+    "show_desktop": "Masaüstünü göster",
+    "screenshot": "Ekran alıntısı aracı (Win+Shift+S)",
 }
 VK = {"vol_up": 0xAF, "vol_down": 0xAE, "mute": 0xAD,
       "play_pause": 0xB3, "next": 0xB0, "prev": 0xB1}
+EXT_VK = {0xAF, 0xAE, 0xAD, 0xB3, 0xB0, 0xB1}
+
+
+def press_combo(vks):
+    u = ctypes.windll.user32
+    for v in vks:
+        u.keybd_event(v, 0, 1 if v in EXT_VK else 0, 0)
+    for v in reversed(vks):
+        u.keybd_event(v, 0, (1 if v in EXT_VK else 0) | 2, 0)
 
 
 def press_key(vk, times=1):
-    u = ctypes.windll.user32
     for _ in range(times):
-        u.keybd_event(vk, 0, 0, 0)
-        u.keybd_event(vk, 0, 2, 0)
+        press_combo([vk])
         time.sleep(0.02)
 
 
-def run_system(name):
+# Windows medya oturumlari (Spotify, tarayici, ...) ile dogrudan konusur; kucultulmus olsa da calisir.
+MEDIA_PS = r"""
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' })[0]
+function Await($op, $type) { $t = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); $t.Wait(-1) | Out-Null; $t.Result }
+[void][Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime]
+$mgr = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
+$sessions = @($mgr.GetSessions())
+if ($sessions.Count -eq 0) { Write-Output "NOSESSION"; exit 0 }
+$cur = $mgr.GetCurrentSession(); if (-not $cur) { $cur = $sessions[0] }
+$did = 0
+switch ($Action) {
+  'pause' { foreach ($s in $sessions) { if ($s.GetPlaybackInfo().PlaybackStatus -eq 'Playing') { [void](Await ($s.TryPauseAsync()) ([bool])); $did++ } } }
+  'play'  { [void](Await ($cur.TryPlayAsync()) ([bool])); $did++ }
+  'next'  { [void](Await ($cur.TrySkipNextAsync()) ([bool])); $did++ }
+  'prev'  { [void](Await ($cur.TrySkipPreviousAsync()) ([bool])); $did++ }
+}
+Write-Output "DONE $did"
+"""
+
+
+def media_ps(action):
+    script = f"$Action = '{action}'\n" + MEDIA_PS
+    enc = base64.b64encode(script.encode("utf-16-le")).decode()
+    try:
+        r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                            "-EncodedCommand", enc], capture_output=True, text=True, timeout=12,
+                           creationflags=0x08000000)
+        out = (r.stdout or "").strip()
+        return (r.returncode == 0 and ("DONE" in out or "NOSESSION" in out)), (out or (r.stderr or "")[:120])
+    except Exception as e:
+        return False, repr(e)
+
+
+def run_system(name, log=None):
+    log = log or (lambda m: None)
     if name == "lock":
         ctypes.windll.user32.LockWorkStation()
     elif name in ("vol_up", "vol_down"):
         press_key(VK[name], 5)
+    elif name in ("media_pause", "media_play", "next", "prev"):
+        act = {"media_pause": "pause", "media_play": "play", "next": "next", "prev": "prev"}[name]
+        ok, out = media_ps(act)
+        if ok and out.startswith("DONE"):
+            n = int(out.split()[-1])
+            log("Çalan müzik yok." if (act == "pause" and n == 0) else f"Medya: {act} gönderildi.")
+        elif ok:   # NOSESSION
+            log("Açık bir medya oturumu bulunamadı.")
+            if act != "pause":
+                press_key({"play": VK["play_pause"], "next": VK["next"], "prev": VK["prev"]}[act])
+        else:
+            log(f"Medya denetimi çalışmadı ({out[:80]}); medya tuşu gönderiliyor.")
+            press_key({"pause": VK["play_pause"], "play": VK["play_pause"],
+                       "next": VK["next"], "prev": VK["prev"]}[act])
+    elif name == "show_desktop":
+        press_combo([0x5B, 0x44])
+    elif name == "screenshot":
+        press_combo([0x5B, 0x10, 0x53])
     elif name in VK:
         press_key(VK[name])
 
 
-def _beep():
+# ---- bip sesleri (bellekte uretilir, ses seviyesi ayarli) ----
+SND_SR = 22050
+
+
+def _env(n, fi=0.008, fo=0.04, decay=0.0):
+    e = np.ones(n, dtype=np.float32)
+    a, b = int(fi * SND_SR), int(fo * SND_SR)
+    if a:
+        e[:a] = np.linspace(0, 1, a)
+    if b:
+        e[-b:] *= np.linspace(1, 0, b)
+    if decay:
+        e *= np.exp(-np.arange(n) / SND_SR * decay)
+    return e
+
+
+def _sine(f, dur, **kw):
+    n = int(SND_SR * dur)
+    return np.sin(2 * np.pi * f * np.arange(n) / SND_SR) * _env(n, **kw)
+
+
+def _chirp(f0, f1, dur, **kw):
+    n = int(SND_SR * dur)
+    ph = 2 * np.pi * np.cumsum(np.linspace(f0, f1, n)) / SND_SR
+    return np.sin(ph) * _env(n, **kw)
+
+
+def _gap(dur):
+    return np.zeros(int(SND_SR * dur), dtype=np.float32)
+
+
+SOUNDS = {
+    "rising": lambda: _chirp(520, 880, 0.16),
+    "classic": lambda: _sine(900, 0.11),
+    "double": lambda: np.concatenate([_sine(660, 0.07), _gap(0.03), _sine(880, 0.09)]),
+    "bell": lambda: _sine(1318, 0.4, decay=9) + 0.5 * _sine(1976, 0.4, decay=12),
+    "tick": lambda: _sine(1500, 0.03, fo=0.02),
+    "ok": lambda: np.concatenate([_sine(700, 0.06), _sine(1000, 0.09)]),
+    "fail": lambda: _sine(300, 0.18, fo=0.08),
+}
+_wav_cache = {}
+
+
+def _wav_bytes(name, vol):
+    key = (name, int(vol))
+    if key not in _wav_cache:
+        x = SOUNDS[name]().astype(np.float32)
+        x = x / max(1e-6, float(np.max(np.abs(x))))
+        x = x * (max(0, min(100, int(vol))) / 100.0) ** 1.6 * 0.9
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(SND_SR)
+            w.writeframes((x * 32767).astype(np.int16).tobytes())
+        _wav_cache[key] = buf.getvalue()
+    return _wav_cache[key]
+
+
+def play_sound(name, vol=60):
+    if name in (None, "", "none"):
+        return
     try:
         import winsound
-        winsound.Beep(900, 110)
+        if name == "system":
+            winsound.MessageBeep(winsound.MB_OK)
+            return
+        if name not in SOUNDS:
+            name = "rising"
+        winsound.PlaySound(_wav_bytes(name, vol), winsound.SND_MEMORY)   # senkron: thread icinde cagrilir
     except Exception:
         pass
 
@@ -129,7 +270,7 @@ def _beep():
 def run_command(cmd, log):
     try:
         if cmd.get("system"):
-            run_system(cmd["system"])
+            run_system(cmd["system"], log)
             log(f"Çalıştı: {SYSTEM_ACTIONS.get(cmd['system'], cmd['system'])}")
             return
         targets = cmd.get("targets") or []
@@ -173,10 +314,26 @@ def default_commands():
         _c("Sesi aç", ["sesi aç", "sesi yükselt"], system="vol_up"),
         _c("Sesi kıs", ["sesi kıs", "sesi azalt"], system="vol_down"),
         _c("Sessiz", ["sesi kapat", "sessiz"], system="mute"),
-        _c("Müzik durdur/devam", ["müziği durdur", "müziği devam ettir", "müziği duraklat"], system="play_pause"),
+        _c("Müziği durdur", ["müziği durdur", "müziği duraklat", "müzik durdur", "müziği kapat"], system="media_pause"),
+        _c("Müziği başlat", ["müziği başlat", "müziği devam ettir", "müziği çal", "müzik başlat"], system="media_play"),
         _c("Sonraki şarkı", ["sonraki şarkı", "şarkıyı geç"], system="next"),
         _c("Önceki şarkı", ["önceki şarkı"], system="prev"),
+        _c("Masaüstünü göster", ["masaüstünü göster", "masaüstüne git"], system="show_desktop"),
+        _c("Ekran alıntısı", ["ekran görüntüsü al", "ekran alıntısı"], system="screenshot"),
     ]
+
+
+def migrate_commands(cmds):
+    new = {c["name"]: c for c in default_commands()}
+    out = []
+    for c in cmds:
+        if c.get("system") == "play_pause" and c.get("name") == "Müzik durdur/devam":
+            out += [new["Müziği durdur"], new["Müziği başlat"]]
+        else:
+            out.append(c)
+    names = {c["name"] for c in out}
+    out += [new[n] for n in ("Masaüstünü göster", "Ekran alıntısı") if n not in names]
+    return out
 
 
 def load_json(path, default):
@@ -294,12 +451,24 @@ def set_autostart(on: bool):
 # ----------------------------------------------------------------------------
 class Core:
     def __init__(self):
-        self.cfg = {**DEFAULT_CONFIG, **load_json(CONFIG_PATH, {})}
+        raw = load_json(CONFIG_PATH, {})
+        ver = raw.get("cfg_ver", 0)
+        self.cfg = {**DEFAULT_CONFIG, **raw}
+        if ver < 2:   # eski surumden gecis
+            if raw:
+                self.cfg["cmd_engine"] = "small"          # turbo CPU'da cok yavas kaldi
+                self.cfg["keep_warm"] = 120
+                if raw.get("beep") is False:
+                    self.cfg["beep_sound"] = "none"
+            self.cfg["cfg_ver"] = 2
+            save_json(CONFIG_PATH, self.cfg)
         if self.cfg.get("cmd_engine") not in ("turbo", "small", "light"):
             self.cfg["cmd_engine"] = "turbo"
         cmds = load_json(COMMANDS_PATH, None)
         if not isinstance(cmds, list):
             cmds = default_commands()
+        if ver < 2:
+            cmds = migrate_commands(cmds)
         for c in cmds:
             c.setdefault("id", uuid.uuid4().hex[:8])
             c.setdefault("enabled", True)
@@ -321,6 +490,10 @@ class Core:
         self.state["state"] = state
         self.state["status"] = status
 
+    def fb(self, name):
+        if self.cfg.get("feedback_sounds", True) and self.cfg.get("beep_sound", "rising") != "none":
+            threading.Thread(target=play_sound, args=(name, self.cfg.get("beep_volume", 60)), daemon=True).start()
+
     def save_commands(self):
         save_json(COMMANDS_PATH, self.commands)
 
@@ -333,10 +506,12 @@ class Core:
         if cmd:
             self.log(f"Eşleşti: {cmd['name']} (%{int(score)})")
             self.state["last"] = {"text": text, "cmd": cmd["name"], "time": now}
+            self.fb("ok")
             threading.Thread(target=run_command, args=(cmd, self.log), daemon=True).start()
         else:
             self.log(f"Eşleşen komut yok (en iyi skor %{int(score)}).")
             self.state["last"] = {"text": text, "cmd": None, "time": now}
+            self.fb("fail")
 
 
 # ----------------------------------------------------------------------------
@@ -354,8 +529,38 @@ class Engine(threading.Thread):
         self.wlock = threading.Lock()
         self.busy = False
         self.last_use = time.time()
+        self.manual = threading.Event()
+
+    def _hotkey_loop(self):
+        """Ctrl+Alt+T: uyandirma kelimesi olmadan dinlemeyi baslatir."""
+        try:
+            import ctypes.wintypes as wt
+            u = ctypes.windll.user32
+            if not u.RegisterHotKey(None, 1, 0x2 | 0x1 | 0x4000, 0x54):
+                self.core.log("Kısayol (Ctrl+Alt+T) kaydedilemedi; başka bir uygulama kullanıyor olabilir.")
+                return
+            msg = wt.MSG()
+            while not self.stop.is_set():
+                if u.PeekMessageW(ctypes.byref(msg), None, 0x312, 0x312, 1):
+                    if self.core.cfg.get("hotkey", True):
+                        self.manual.set()
+                else:
+                    time.sleep(0.05)
+        except Exception as e:
+            self.core.log(f"Kısayol başlatılamadı: {e!r}")
+
+    def run_command_session(self, aq, rec, noise):
+        rec.Reset()
+        thr = float(min(2500.0, max(300.0, np.median(noise) * 2.5))) if len(noise) else 300.0
+        try:
+            self.handle_command(aq, thr)
+        except Exception as e:
+            self.core.log(f"Komut hatası: {e!r}")
+        self.flush(aq)
+        rec.Reset()
 
     def run(self):
+        threading.Thread(target=self._hotkey_loop, daemon=True).start()
         while not self.stop.is_set():
             try:
                 self.session()
@@ -428,7 +633,9 @@ class Engine(threading.Thread):
         for n in need:
             self.get_model(n)
         wake_model = self.models[wake]
-        phrases, strict = build_wake(wake_model, wake, cfg.get("strict_wake", True))
+        sens = cfg.get("wake_sens", "normal")
+        phrases, strict = build_wake(wake_model, wake, cfg.get("strict_wake", True),
+                                     None if sens == "sensitive" else 2)
         if strict:
             core.log("Uyandırma: “hey tank” (hey + tank birlikte).")
         elif cfg.get("strict_wake", True):
@@ -437,6 +644,8 @@ class Engine(threading.Thread):
         else:
             core.log("Uyandırma: yalnızca “tank” (sıkı algılama kapalı).")
         rec = KaldiRecognizer(wake_model, SR, json.dumps(phrases + ["[unk]"], ensure_ascii=False))
+        rec.SetWords(True)
+        core.log(f"Uyandırma hassasiyeti: {sens}")
 
         aq = queue.Queue()
 
@@ -444,6 +653,8 @@ class Engine(threading.Thread):
             aq.put(bytes(indata))
 
         noise = deque(maxlen=80)
+        recent = deque(maxlen=8)
+        hits = 0
         with sd.RawInputStream(samplerate=SR, blocksize=2000, device=cfg.get("mic_device"),
                                dtype="int16", channels=1, callback=cb):
             core.log("Mikrofon açıldı.")
@@ -465,6 +676,12 @@ class Engine(threading.Thread):
                 rms = float(np.sqrt(np.mean(arr ** 2)))
                 core.state["level"] = min(1.0, rms / 3000.0)
 
+                if self.manual.is_set():
+                    self.manual.clear()
+                    core.log("Kısayol ile dinleme başlatıldı.")
+                    self.run_command_session(aq, rec, noise)
+                    last, last_data, hits = None, time.time(), 0
+                    continue
                 if not cfg.get("listening", True):
                     if last != "pause":
                         core.set_state("pause", "Dinleme kapalı")
@@ -476,21 +693,37 @@ class Engine(threading.Thread):
                     last = "wait"
 
                 noise.append(rms)
-                if rec.AcceptWaveform(data):
-                    txt = json.loads(rec.Result()).get("text", "")
+                recent.append(rms)
+                conf = None
+                final = rec.AcceptWaveform(data)
+                if final:
+                    res = json.loads(rec.Result())
+                    txt = res.get("text", "")
+                    ws = res.get("result") or []
+                    conf = min((w.get("conf", 0.0) for w in ws), default=0.0)
                 else:
                     txt = json.loads(rec.PartialResult()).get("partial", "")
                 if txt and txt != "[unk]":
                     core.state["heard"] = txt
+                sens = cfg.get("wake_sens", "normal")
+                fire = False
                 if is_wake(txt, strict):
-                    rec.Reset()
-                    thr = float(min(2500.0, max(300.0, np.median(noise) * 2.5)))
-                    try:
-                        self.handle_command(aq, thr)
-                    except Exception as e:
-                        core.log(f"Komut hatası: {e!r}")
-                    self.flush(aq)
-                    rec.Reset()
+                    voiced = max(recent) >= max(300.0, float(np.median(noise)) * 2.0)   # gercekten ses var mi
+                    cooled = time.time() - self.last_use > 3.0                          # komuttan hemen sonra degil
+                    if voiced and cooled:
+                        if sens == "sensitive":
+                            fire = True
+                        elif sens == "normal":
+                            hits += 1
+                            fire = hits >= 2 or (final and (conf or 0.0) >= 0.5)
+                        else:   # strict: cumle bitince ve guven yuksekse
+                            fire = bool(final and (conf or 0.0) >= 0.75)
+                else:
+                    hits = 0
+                if fire:
+                    hits = 0
+                    core.log(f"Uyandırma: “{txt}”" + (f" (güven {conf:.2f})" if conf is not None else ""))
+                    self.run_command_session(aq, rec, noise)
                     last, last_data = None, time.time()
 
     @staticmethod
@@ -509,8 +742,9 @@ class Engine(threading.Thread):
             core.log("“Hey Tank” algılandı.")
             if cfg["cmd_engine"] != "light":
                 threading.Thread(target=self._preload, daemon=True).start()
-            if cfg.get("beep", True):
-                threading.Thread(target=_beep, daemon=True).start()   # kaydi bloklamasin
+            if cfg.get("beep_sound", "rising") != "none":
+                threading.Thread(target=play_sound, args=(cfg.get("beep_sound", "rising"),
+                                 cfg.get("beep_volume", 60)), daemon=True).start()   # kaydi bloklamasin
             text = ""
             for attempt in range(2):
                 audio = self.record(aq, thr, cfg.get("max_record_sec", 7))
@@ -519,10 +753,12 @@ class Engine(threading.Thread):
                     return
                 core.set_state("think", "Anlaşılıyor...")
                 cmds = [c for c in core.commands if c.get("enabled", True)]
+                t_dec = time.time()
                 if cfg["cmd_engine"] == "light":
                     raw = self.transcribe_light(audio, cmds)
                 else:
                     raw = self.transcribe_whisper(audio, cmds)
+                core.log(f"Anlama süresi: {time.time() - t_dec:.1f} sn")
                 text = strip_wake(raw)
                 core.log(f"Duyulan: “{raw}”")
                 if text:
@@ -565,7 +801,7 @@ class Engine(threading.Thread):
             else:
                 chunks.append(a)
                 silence = 0.0 if rms > thr else silence + len(a) / SR
-                if silence >= 1.0:
+                if silence >= float(self.core.cfg.get("end_silence", 0.7)):
                     break
         return np.concatenate(chunks) if (started and chunks) else None
 
@@ -679,14 +915,18 @@ class Api:
             return False
         if key == "mic_device":
             value = None if value in (None, "") else int(value)
-        elif key in ("match_threshold", "max_record_sec", "keep_warm"):
+        elif key in ("match_threshold", "max_record_sec", "keep_warm", "beep_volume"):
             value = int(value)
-        elif key in ("beep", "listening", "strict_wake"):
+        elif key in ("beep", "listening", "strict_wake", "feedback_sounds", "hotkey"):
             value = bool(value)
         c.cfg[key] = value
         c.save_cfg()
-        if key in ("mic_device", "wake_lang", "cmd_engine", "strict_wake"):
+        if key in ("mic_device", "wake_lang", "cmd_engine", "strict_wake", "wake_sens"):
             c.engine.reopen.set()
+        return True
+
+    def test_beep(self, name, vol):
+        threading.Thread(target=play_sound, args=(name, int(vol)), daemon=True).start()
         return True
 
     def add_phrase(self, cid, text):
