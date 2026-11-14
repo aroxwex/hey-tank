@@ -21,18 +21,42 @@ jobs:
       - name: Bagimliliklari kur
         run: pip install -r requirements.txt pyinstaller
 
+      - name: python3.dll yolu
+        id: py
+        shell: pwsh
+        run: |
+          $p = python -c "import sys,os;print(os.path.join(sys.base_prefix,'python3.dll'))"
+          "py3=$p" >> $env:GITHUB_OUTPUT
+
       - name: Ikon uret
         run: python tools/make_icon.py
 
       - name: exe derle
         run: >
           pyinstaller --noconfirm --noconsole --name HeyTank --icon assets/icon.ico
-          --add-data "ui;ui" --add-data "assets;assets"
+          --add-data "ui;ui" --add-data "assets;assets" --add-binary "${{ steps.py.outputs.py3 }};."
           --hidden-import pystray._win32
           --collect-all webview --collect-all clr_loader --collect-all pythonnet
           --collect-all vosk --collect-all faster_whisper --collect-all ctranslate2
           --collect-all av --collect-all sounddevice --collect-all _sounddevice_data
           main.py
+
+      - name: .NET icin uzak-kaynak izni (HeyTank.exe.config)
+        shell: pwsh
+        run: |
+          Set-Content -Path dist/HeyTank/HeyTank.exe.config -Encoding UTF8 -Value @(
+            '<?xml version="1.0" encoding="utf-8"?>',
+            '<configuration><runtime><loadFromRemoteSources enabled="true"/></runtime></configuration>')
+
+      - name: Acilis testi (internet isareti ile)
+        shell: pwsh
+        run: |
+          Get-ChildItem dist/HeyTank -Recurse -File | Where-Object { $_.Extension -in '.dll','.pyd','.exe' } | ForEach-Object {
+            Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" }
+          $p = Start-Process dist/HeyTank/HeyTank.exe -ArgumentList "--selftest" -Wait -PassThru
+          if (Test-Path dist/HeyTank/selftest.txt) { Get-Content dist/HeyTank/selftest.txt }
+          if ($p.ExitCode -ne 0) { throw "Acilis testi basarisiz (kod $($p.ExitCode))" }
+          Remove-Item dist/HeyTank/selftest.txt -ErrorAction SilentlyContinue
 
       - name: Exe ikonunu kontrol et
         shell: pwsh

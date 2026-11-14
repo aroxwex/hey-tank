@@ -17,6 +17,9 @@ import random
 import ctypes
 import datetime
 import threading
+import secrets
+import subprocess
+import http.server
 from collections import deque
 from pathlib import Path
 
@@ -704,17 +707,128 @@ class Api:
         return get_autostart()
 
     def pick_file(self):
-        import webview
+        w = self._app.window
+        if w is not None:
+            import webview
+            try:
+                kind = webview.FileDialog.OPEN
+            except AttributeError:
+                kind = webview.OPEN_DIALOG
+            r = w.create_file_dialog(kind)
+            return r[0] if r else None
+        import tkinter                      # tarayici modunda
+        from tkinter import filedialog
+        root = tkinter.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
         try:
-            kind = webview.FileDialog.OPEN
-        except AttributeError:
-            kind = webview.OPEN_DIALOG
-        r = self._app.window.create_file_dialog(kind)
-        return r[0] if r else None
+            p = filedialog.askopenfilename(title="Program / dosya seç")
+        finally:
+            root.destroy()
+        return p or None
+
+    def quit_app(self):
+        self._app.quit()
+        return True
 
     def hide(self):
         self._app.hide()
         return True
+
+
+# ----------------------------------------------------------------------------
+# Internetten inen zip'teki "Zone.Identifier" isaretini kaldir.
+# .NET bu isaretli DLL'leri yuklemeyi reddeder -> "Failed to resolve Python.Runtime.Loader.Initialize"
+# ----------------------------------------------------------------------------
+def unblock_files():
+    try:
+        for root in {BASE, RES}:
+            for dp, dn, fn in os.walk(root):
+                dn[:] = [d for d in dn if d not in ("models", "webview-data")]
+                for f in fn:
+                    if f.lower().endswith((".dll", ".pyd", ".exe", ".config")):
+                        try:
+                            os.remove(os.path.join(dp, f) + ":Zone.Identifier")
+                        except OSError:
+                            pass
+    except Exception:
+        pass
+
+
+def selftest():
+    """CI'da: derlenen exe pythonnet/pywebview ve ses kutuphanelerini yukleyebiliyor mu?"""
+    out = BASE / "selftest.txt"
+    code = 0
+    try:
+        unblock_files()
+        import clr  # noqa: F401  (pythonnet)
+        import webview  # noqa: F401
+        import faster_whisper  # noqa: F401
+        import vosk  # noqa: F401
+        import sounddevice  # noqa: F401
+        out.write_text("OK", encoding="utf-8")
+    except Exception as e:
+        out.write_text(f"HATA: {e!r}", encoding="utf-8")
+        code = 1
+    os._exit(code)
+
+
+# ----------------------------------------------------------------------------
+# Yedek arayuz: pywebview/pythonnet calismazsa Edge/Chrome "uygulama modu" + yerel sunucu
+# ----------------------------------------------------------------------------
+SHIM = r"""<script>(function(){if(window.pywebview)return;var b=location.pathname.replace(/[^\/]*$/,'');
+window.pywebview={api:new Proxy({},{get:function(_,n){return function(){var a=Array.prototype.slice.call(arguments);
+return fetch(b+'api/'+n,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(a)}).then(function(r){return r.json()})}}})};
+window.addEventListener('load',function(){window.dispatchEvent(new Event('pywebviewready'))})})();</script>"""
+
+
+class _Handler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass
+
+    def _rest(self):
+        if not self.headers.get("Host", "").startswith("127.0.0.1"):
+            return None
+        parts = self.path.split("?")[0].split("/", 2)
+        if len(parts) < 3 or parts[1] != self.server.token:
+            return None
+        return parts[2]
+
+    def _send(self, code, ctype, body):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        rest = self._rest()
+        icon = RES / "assets" / "icon.png"
+        if rest in ("", "index.html"):
+            html = UI_FILE.read_text(encoding="utf-8").replace(
+                "</head>", '<link rel="icon" href="icon.png">' + SHIM + "</head>", 1)
+            self._send(200, "text/html; charset=utf-8", html.encode("utf-8"))
+        elif rest == "icon.png" and icon.exists():
+            self._send(200, "image/png", icon.read_bytes())
+        else:
+            self._send(404, "text/plain", b"yok")
+
+    def do_POST(self):
+        rest = self._rest()
+        if not rest or not rest.startswith("api/"):
+            return self._send(404, "text/plain", b"yok")
+        name = rest[4:]
+        fn = getattr(self.server.api, name, None)
+        if name.startswith("_") or not callable(fn):
+            return self._send(404, "text/plain", b"yok")
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+            args = json.loads(self.rfile.read(n) or b"[]")
+            body = json.dumps(fn(*args), ensure_ascii=False).encode("utf-8")
+            self._send(200, "application/json; charset=utf-8", body)
+        except Exception as e:
+            self._send(500, "application/json", json.dumps({"error": repr(e)}).encode("utf-8"))
 
 
 # ----------------------------------------------------------------------------
@@ -733,6 +847,8 @@ class App:
         self.hidden = hidden
         self.window = None
         self.tray = None
+        self.httpd = None
+        self.proc = None
 
     def set_window_icon(self, *a):
         """Gorev cubugu / baslik cubugu ikonu (exe ikonu gomulu olmasa bile T gorunur)."""
@@ -763,6 +879,52 @@ class App:
     def show(self):
         if self.window:
             self.window.show()
+        elif self.httpd:
+            self.open_browser_window()
+
+    def start_browser_ui(self, show=True):
+        if self.httpd is None:
+            self.httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+            self.httpd.token = secrets.token_urlsafe(12)
+            self.httpd.api = Api(self.core, self)
+            threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+        if show:
+            self.open_browser_window()
+
+    def open_browser_window(self):
+        if self.proc is not None and self.proc.poll() is None:
+            return
+        url = f"http://127.0.0.1:{self.httpd.server_port}/{self.httpd.token}/"
+        for base in (os.environ.get("ProgramFiles(x86)"), os.environ.get("ProgramFiles"),
+                     os.environ.get("LOCALAPPDATA")):
+            if not base:
+                continue
+            for exe in (Path(base) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+                        Path(base) / "Google" / "Chrome" / "Application" / "chrome.exe"):
+                if exe.exists():
+                    try:
+                        self.proc = subprocess.Popen(
+                            [str(exe), f"--app={url}",
+                             f"--user-data-dir={BASE / 'webview-data' / 'browser'}",
+                             "--window-size=1100,720", "--no-first-run",
+                             "--no-default-browser-check"])
+                        return
+                    except Exception as e:
+                        self.core.log(f"Tarayıcı açılamadı: {e!r}")
+        import webbrowser
+        webbrowser.open(url)
+
+    def watch_show(self):
+        """Uygulama zaten calisirken exe'ye tekrar cift tiklanirsa pencereyi one getir."""
+        f = BASE / ".show"
+        while True:
+            time.sleep(1)
+            try:
+                if f.exists():
+                    f.unlink()
+                    self.show()
+            except Exception:
+                pass
 
     def quit(self):
         self.core.engine.stop.set()
@@ -793,7 +955,7 @@ class App:
             self.tray = None
 
     def run(self):
-        import webview
+        unblock_files()   # pythonnet yuklenmeden once
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("HeyTank.App")
         except Exception:
@@ -805,19 +967,33 @@ class App:
                 pass
         self.core.engine.start()
         self.setup_tray()
-        self.window = webview.create_window(
-            "Hey Tank", url=str(UI_FILE), js_api=Api(self.core, self),
-            width=1100, height=680, min_size=(900, 560),
-            background_color="#0E0E0E", hidden=self.hidden)
-        self.window.events.closing += self.on_closing
-        self.window.events.loaded += self.set_window_icon
-        self.window.events.shown += self.set_window_icon
-        try:
-            webview.start(gui="edgechromium", storage_path=str(BASE / "webview-data"))
-        except Exception as e:
-            message_box("Arayüz açılamadı. Microsoft Edge WebView2 Runtime gerekli "
-                        "(Windows 11'de hazır gelir).\n\n" + repr(e))
-        self.quit()
+        threading.Thread(target=self.watch_show, daemon=True).start()
+
+        ok = False
+        if "--browser" not in sys.argv:
+            try:
+                import webview
+                self.window = webview.create_window(
+                    "Hey Tank", url=str(UI_FILE), js_api=Api(self.core, self),
+                    width=1100, height=680, min_size=(900, 560),
+                    background_color="#0E0E0E", hidden=self.hidden)
+                self.window.events.closing += self.on_closing
+                self.window.events.loaded += self.set_window_icon
+                self.window.events.shown += self.set_window_icon
+                webview.start(gui="edgechromium", storage_path=str(BASE / "webview-data"))
+                ok = True
+            except Exception as e:
+                self.window = None
+                self.core.log(f"Pencere modu açılamadı ({e!r}). Tarayıcı moduna geçildi.")
+        if ok:
+            self.quit()
+
+        # yedek: Edge/Chrome uygulama penceresi
+        self.start_browser_ui(show=not self.hidden)
+        while True:
+            time.sleep(1)
+            if self.tray is None and self.proc is not None and self.proc.poll() is not None:
+                self.quit()
 
 
 def single_instance():
@@ -830,5 +1006,12 @@ def single_instance():
 
 
 if __name__ == "__main__":
-    if single_instance():
+    if "--selftest" in sys.argv:
+        selftest()
+    elif single_instance():
         App(hidden="--tray" in sys.argv).run()
+    else:
+        try:
+            (BASE / ".show").write_text("1")   # calisan kopya pencereyi one getirir
+        except Exception:
+            pass

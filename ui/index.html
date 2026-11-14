@@ -76,6 +76,7 @@ h2{margin:0;font-size:14px;font-weight:600}
  <div class="lb">UYGULAMA</div>
  <button class="nv" data-view="settings"><span>Ayarlar</span></button>
  <button class="nv" data-view="log"><span>Kayıt</span></button>
+ <button class="nv" id="quit"><span>Çıkış</span></button>
  <div style="padding:12px 10px 0;font-size:11px;color:var(--mut)">Çevrimdışı · Türkçe</div>
 </aside>
 <main>
@@ -230,6 +231,7 @@ document.addEventListener("input",async e=>{
   if(e.target.id==="q")renderList();
 });
 $("new").onclick=()=>openEdit("");
+$("quit").onclick=()=>{if(confirm("Hey Tank tamamen kapatılsın mı?"))api().quit_app()};
 $("addph").onclick=()=>{if(lastMiss)openAddPhrase(lastMiss)};
 $("listen").onclick=async()=>{S.cfg.listening=!S.cfg.listening;await api().set_config("listening",S.cfg.listening)};
 $("tryb").onclick=()=>{const v=$("try").value.trim();if(v){api().try_text(v);$("try").value=""}};
