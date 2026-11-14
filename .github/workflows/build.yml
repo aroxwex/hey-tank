@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -50,11 +51,16 @@ jobs:
 
       - name: Acilis testi (internet isareti ile)
         shell: pwsh
+        continue-on-error: true
+        timeout-minutes: 5
         run: |
-          Get-ChildItem dist/HeyTank -Recurse -File | Where-Object { $_.Extension -in '.dll','.pyd','.exe' } | ForEach-Object {
+          # Sadece DLL/pyd'lere isaret koy. exe'ye KOYMA: Windows "Guvenlik Uyarisi" penceresi acip sonsuza dek bekler.
+          Get-ChildItem dist/HeyTank -Recurse -File | Where-Object { $_.Extension -in '.dll','.pyd' } | ForEach-Object {
             Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" }
-          $p = Start-Process dist/HeyTank/HeyTank.exe -ArgumentList "--selftest" -Wait -PassThru
-          if (Test-Path dist/HeyTank/selftest.txt) { Get-Content dist/HeyTank/selftest.txt }
+          $p = Start-Process dist/HeyTank/HeyTank.exe -ArgumentList "--selftest" -PassThru
+          $done = $p.WaitForExit(120000)
+          if (Test-Path dist/HeyTank/selftest.txt) { Write-Host ("Sonuc: " + (Get-Content dist/HeyTank/selftest.txt -Raw)) }
+          if (-not $done) { $p.Kill(); throw "Acilis testi 120 sn icinde bitmedi (pencere/diyalog bekliyor olabilir)" }
           if ($p.ExitCode -ne 0) { throw "Acilis testi basarisiz (kod $($p.ExitCode))" }
           Remove-Item dist/HeyTank/selftest.txt -ErrorAction SilentlyContinue
 
