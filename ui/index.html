@@ -69,7 +69,7 @@ h2{margin:0;font-size:14px;font-weight:600}
 <body>
 <div id="app">
 <aside>
- <div class="brand"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EDEDED" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>Tank</div>
+ <div class="brand"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#EDEDED"/><path d="M6.5 7H17.5V10H13.5V18H10.5V10H6.5Z" fill="#111111"/></svg>Tank</div>
  <div class="lb">KOMUTLAR</div>
  <div id="cats"></div>
  <div style="flex:1"></div>
@@ -228,7 +228,7 @@ async function tick(){
   try{
     const s=await api().poll(seq);
     seq=s.seq;
-    const stale=s.beat_age>15;
+    const stale=s.stale;
     $("status").textContent=stale?"Motor yanıt vermiyor":s.status;
     $("dot").style.background=stale?DOT.error:(DOT[s.state]||DOT.pause);
     $("listen").classList.toggle("on",S.cfg.listening!==false);

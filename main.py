@@ -419,7 +419,7 @@ class Engine(threading.Thread):
                         core.log(f"Komut hatası: {e!r}")
                     self.flush(aq)
                     rec.Reset()
-                    last = None
+                    last, last_data = None, time.time()
 
     @staticmethod
     def flush(aq):
@@ -519,7 +519,9 @@ class Api:
         with c.lock:
             logs = [l for l in c.logs if l[0] > since]
         s = dict(c.state)
-        s["beat_age"] = time.time() - s.pop("beat", time.time())
+        age = time.time() - s.pop("beat", time.time())
+        busy = s["state"] in ("loading", "think", "listen")   # model yukleme/anlama uzun surebilir
+        s["stale"] = age > (180 if busy else 15)
         s["logs"] = [l[1] for l in logs]
         s["seq"] = logs[-1][0] if logs else since
         return s
@@ -644,12 +646,8 @@ class App:
     def setup_tray(self):
         try:
             import pystray
-            from PIL import Image, ImageDraw
-            img = Image.new("RGB", (64, 64), "#0E0E0E")
-            d = ImageDraw.Draw(img)
-            d.rounded_rectangle((24, 10, 40, 38), radius=8, outline="#EDEDED", width=4)
-            d.arc((14, 22, 50, 50), 0, 180, fill="#EDEDED", width=4)
-            d.line((32, 50, 32, 58), fill="#EDEDED", width=4)
+            from icon_draw import draw
+            img = draw(64)
             menu = pystray.Menu(pystray.MenuItem("Göster", lambda: self.show(), default=True),
                                 pystray.MenuItem("Çıkış", lambda: self.quit()))
             self.tray = pystray.Icon("HeyTank", img, "Hey Tank", menu)

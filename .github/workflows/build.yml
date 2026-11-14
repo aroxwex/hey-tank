@@ -21,9 +21,12 @@ jobs:
       - name: Bagimliliklari kur
         run: pip install -r requirements.txt pyinstaller
 
+      - name: Ikon uret
+        run: python tools/make_icon.py
+
       - name: exe derle
         run: >
-          pyinstaller --noconfirm --noconsole --name HeyTank
+          pyinstaller --noconfirm --noconsole --name HeyTank --icon assets/icon.ico
           --add-data "ui;ui"
           --hidden-import pystray._win32
           --collect-all webview --collect-all clr_loader --collect-all pythonnet
