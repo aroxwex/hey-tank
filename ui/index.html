@@ -69,7 +69,7 @@ h2{margin:0;font-size:14px;font-weight:600}
 <body>
 <div id="app">
 <aside>
- <div class="brand"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect width="24" height="24" rx="5" fill="#EDEDED"/><path d="M6.5 7H17.5V10H13.5V18H10.5V10H6.5Z" fill="#111111"/></svg>Tank</div>
+ <div class="brand"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x=".5" y=".5" width="23" height="23" rx="5.5" fill="#171717" stroke="#3A3A3A"/><rect x="5.6" y="5.8" width="12.8" height="3.3" rx=".8" fill="#EDEDED"/><rect x="10.2" y="5.8" width="3.4" height="12.6" rx=".8" fill="#EDEDED"/><circle cx="17.4" cy="17.2" r="1.8" fill="#4ADE80"/></svg>Tank</div>
  <div class="lb">KOMUTLAR</div>
  <div id="cats"></div>
  <div style="flex:1"></div>
@@ -85,6 +85,7 @@ h2{margin:0;font-size:14px;font-weight:600}
    <div style="font-size:14px;font-weight:500"><span class="dot" id="dot"></span><span id="status">Başlatılıyor...</span></div>
    <div style="font-size:12px;color:var(--mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="last">Henüz komut yok</div>
   </div>
+  <button class="bt" id="addph" style="display:none">Komuta ekle</button>
   <div class="meter" id="meter"></div>
   <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--sec);margin-left:8px">Dinleme<button class="tg on" id="listen" aria-label="Dinlemeyi aç/kapat"><u></u></button></label>
  </div>
@@ -110,6 +111,7 @@ h2{margin:0;font-size:14px;font-weight:600}
 
 <script>
 const KINDS={all:"Tümü",site:"Siteler",program:"Programlar",game:"Oyunlar",random:"Rastgele",system:"Sistem"};
+let lastMiss=null;
 let S={cmds:[],cfg:{},mics:[],sys:{},auto:false}, filter="all", view="commands", sel=null, seq=0, bars=[];
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -177,6 +179,16 @@ function openEdit(id){
   };
 }
 
+function openAddPhrase(text){
+  $("dlg").innerHTML=`<h3>Bu cümleyi bir komuta ekle</h3>
+  <label>Duyulan cümle (düzeltebilirsin)<input id="f-txt" value="${esc(text)}"></label>
+  <label>Hangi komut?<select id="f-cmd">${S.cmds.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></label>
+  <div class="row"><button class="bt" id="f-cancel">İptal</button><button class="pri" id="f-save">Ekle</button></div>`;
+  $("ov").classList.add("on");
+  $("f-cancel").onclick=()=>$("ov").classList.remove("on");
+  $("f-save").onclick=async()=>{const t=$("f-txt").value.trim();if(!t)return;S.cmds=await api().add_phrase($("f-cmd").value,t);$("ov").classList.remove("on");setView(view)};
+}
+
 /* ---- ayarlar ---- */
 function renderSettings(){
   const c=S.cfg;
@@ -186,7 +198,8 @@ function renderSettings(){
   <div class="sr"><div>Mikrofon<small>Değişince mikrofon otomatik yeniden başlar.</small></div>${sl("mic_device",S.mics.map(m=>[m.id,m.name]))}</div>
   <div class="sr"><div>Uyandırma dinleyicisi<small>“Hey Tank” bazen tutmazsa diğerini dene (Kayıt sekmesinde ne duyduğunu görürsün).</small></div>${sl("wake_lang",[["tr","Türkçe model"],["en","İngilizce model"]])}</div>
   <div class="sr"><div>Sıkı “Hey Tank” algılama<small>Açıkken “hey” ve “tank” birlikte duyulmalı. Kapalıysa tek başına “tank” de uyandırır.</small></div>${tg("strict_wake",c.strict_wake!==false)}</div>
-  <div class="sr"><div>Komut anlama<small>Whisper esnektir (~1 GB RAM). Hafif mod sadece listendeki cümleleri tanır (~0,5 GB RAM), yabancı kelimelerde zayıf kalabilir.</small></div>${sl("cmd_engine",[["whisper","Whisper small (esnek)"],["light","Hafif (Vosk)"]])}</div>
+  <div class="sr"><div>Komut anlama<small>Doğru: Whisper turbo (en iyi Türkçe, komut sonrası ~2-5 sn bekleme). Hızlı: Whisper small. Hafif: sadece listendeki cümleler, en az RAM.</small></div>${sl("cmd_engine",[["turbo","Doğru — Whisper turbo"],["small","Hızlı — Whisper small"],["light","Hafif — Vosk"]])}</div>
+  <div class="sr"><div>Model bellekte kalma süresi<small>Komuttan sonra model bu kadar RAM'de bekler, sonra boşaltılır (RAM tasarrufu). Konuşurken arka planda yüklenir.</small></div>${sl("keep_warm",[[0,"Hemen bırak"],[30,"30 saniye"],[300,"5 dakika"],[-1,"Hep açık"]])}</div>
   <div class="sr"><div>Eşleşme hassasiyeti: %<span id="mt">${c.match_threshold}</span><small>Düşük = daha toleranslı, yanlış tetikleme riski artar.</small></div><input type="range" min="60" max="100" value="${c.match_threshold}" data-r="match_threshold"></div>
   <div class="sr"><div>En fazla dinleme süresi: <span id="ms">${c.max_record_sec}</span> sn</div><input type="range" min="3" max="12" value="${c.max_record_sec}" data-r="max_record_sec"></div>
   <div class="sr"><div>“Hey Tank” sonrası bip sesi</div>${tg("beep",c.beep)}</div>
@@ -217,6 +230,7 @@ document.addEventListener("input",async e=>{
   if(e.target.id==="q")renderList();
 });
 $("new").onclick=()=>openEdit("");
+$("addph").onclick=()=>{if(lastMiss)openAddPhrase(lastMiss)};
 $("listen").onclick=async()=>{S.cfg.listening=!S.cfg.listening;await api().set_config("listening",S.cfg.listening)};
 $("tryb").onclick=()=>{const v=$("try").value.trim();if(v){api().try_text(v);$("try").value=""}};
 $("try").onkeydown=e=>{if(e.key==="Enter")$("tryb").click()};
@@ -234,6 +248,7 @@ async function tick(){
     $("listen").classList.toggle("on",S.cfg.listening!==false);
     const l=s.last;
     $("last").innerHTML=!l?"Henüz komut yok":l.cmd?`Son komut <code>“${esc(l.text)}”</code> → ${esc(l.cmd)} · ${l.time}`:`Duyulan <code>“${esc(l.text)}”</code> · eşleşen komut yok`;
+    const miss=!!(l&&!l.cmd);lastMiss=miss?l.text:null;$("addph").style.display=miss?"":"none";
     const on=s.state==="wait"||s.state==="listen";
     bars.forEach((b,i)=>{const h=on?3+Math.round(s.level*17*(.45+.55*Math.abs(Math.sin(Date.now()/160+i*1.7)))):4;b.style.height=h+"px";b.classList.toggle("a",h>6)});
     $("heard").textContent=s.heard?`Uyandırma dinleyicisi son duyduğu: “${s.heard}”`:"";

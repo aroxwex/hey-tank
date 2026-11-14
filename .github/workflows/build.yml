@@ -27,12 +27,25 @@ jobs:
       - name: exe derle
         run: >
           pyinstaller --noconfirm --noconsole --name HeyTank --icon assets/icon.ico
-          --add-data "ui;ui"
+          --add-data "ui;ui" --add-data "assets;assets"
           --hidden-import pystray._win32
           --collect-all webview --collect-all clr_loader --collect-all pythonnet
           --collect-all vosk --collect-all faster_whisper --collect-all ctranslate2
           --collect-all av --collect-all sounddevice --collect-all _sounddevice_data
           main.py
+
+      - name: Exe ikonunu kontrol et
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $ic = [System.Drawing.Icon]::ExtractAssociatedIcon("$PWD\dist\HeyTank\HeyTank.exe")
+          $ic.ToBitmap().Save("$PWD\exe-icon-check.png", [System.Drawing.Imaging.ImageFormat]::Png)
+
+      - name: Ikon kontrol ciktisi
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe-icon-check
+          path: exe-icon-check.png
 
       - name: Modelleri indir
         run: python tools/fetch_models.py dist/HeyTank/models

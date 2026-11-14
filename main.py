@@ -39,6 +39,7 @@ UI_FILE = RES / "ui" / "index.html"
 CONFIG_PATH = BASE / "config.json"
 COMMANDS_PATH = BASE / "commands.json"
 MODELS = BASE / "models"
+WHISPER_DIRS = {"turbo": MODELS / "whisper-turbo", "small": MODELS / "whisper-small"}
 
 DEFAULT_CONFIG = {
     "match_threshold": 80,
@@ -47,7 +48,8 @@ DEFAULT_CONFIG = {
     "mic_device": None,
     "listening": True,
     "wake_lang": "tr",          # tr | en
-    "cmd_engine": "whisper",    # whisper | light
+    "cmd_engine": "turbo",      # turbo (dogru) | small (hizli) | light (hafif)
+    "keep_warm": 30,            # Whisper bellekte kalma suresi (sn): 0 hemen birak, -1 hep acik
     "strict_wake": True,        # True: "hey" + "tank" birlikte gerekir
 }
 
@@ -111,6 +113,14 @@ def run_system(name):
         press_key(VK[name], 5)
     elif name in VK:
         press_key(VK[name])
+
+
+def _beep():
+    try:
+        import winsound
+        winsound.Beep(900, 110)
+    except Exception:
+        pass
 
 
 def run_command(cmd, log):
@@ -202,6 +212,7 @@ def best_match(text, commands, threshold):
     t = norm(text)
     if not t:
         return None, 0
+    tw = t.split()
     best_cmd, best = None, 0
     for cmd in commands:
         if not cmd.get("enabled", True):
@@ -210,12 +221,35 @@ def best_match(text, commands, threshold):
             p = norm(ph)
             if not p:
                 continue
+            k = len(p.split())
             score = fuzz.ratio(t, p)
+            # soylenen cumle komuttan uzunsa ("youtube'u acar misin") kelime pencereleriyle karsilastir
+            for i in range(0, max(1, len(tw) - k + 1)):
+                w = " ".join(tw[i:i + k])
+                score = max(score, fuzz.ratio(w, p))
             if f" {p} " in f" {t} ":
                 score = max(score, 92)
             if score > best:
                 best_cmd, best = cmd, score
     return (best_cmd, best) if best >= threshold else (None, best)
+
+
+_HEY = {norm(x) for x in HEY_TOKENS} | {"heytank", "eytank", "haytank", "heytenk"}
+_TANK = {norm(x) for x in TANK_TOKENS}
+
+
+def strip_wake(text: str) -> str:
+    """Cümlenin basindaki 'hey tank' benzeri kelimeleri (Whisper'in yazdigi haliyle) atar."""
+    words = text.split()
+    n = 0
+    while words and n < 3:
+        w = norm(words[0])
+        if w in _HEY or w in _TANK or (len(w) >= 3 and fuzz.ratio(w, "tank") >= 80):
+            words.pop(0)
+            n += 1
+        else:
+            break
+    return " ".join(words).strip()
 
 
 # ----------------------------------------------------------------------------
@@ -258,6 +292,8 @@ def set_autostart(on: bool):
 class Core:
     def __init__(self):
         self.cfg = {**DEFAULT_CONFIG, **load_json(CONFIG_PATH, {})}
+        if self.cfg.get("cmd_engine") not in ("turbo", "small", "light"):
+            self.cfg["cmd_engine"] = "turbo"
         cmds = load_json(COMMANDS_PATH, None)
         if not isinstance(cmds, list):
             cmds = default_commands()
@@ -311,6 +347,10 @@ class Engine(threading.Thread):
         self.reopen = threading.Event()
         self.models = {}
         self.whisper = None
+        self.whisper_key = None
+        self.wlock = threading.Lock()
+        self.busy = False
+        self.last_use = time.time()
 
     def run(self):
         while not self.stop.is_set():
@@ -331,16 +371,41 @@ class Engine(threading.Thread):
             self.models[name] = Model(str(d))
         return self.models[name]
 
-    def get_whisper(self):
-        if self.whisper is None:
+    def get_whisper(self, quiet=False):
+        key = self.core.cfg.get("cmd_engine", "turbo")
+        if key not in WHISPER_DIRS:
+            key = "turbo"
+        with self.wlock:
+            if self.whisper is not None and self.whisper_key == key:
+                return self.whisper
+            self.whisper = None
+            gc.collect()
             from faster_whisper import WhisperModel
-            d = MODELS / "whisper"
+            d = WHISPER_DIRS[key]
             if not d.exists():
                 raise FileNotFoundError(f"Model klasörü yok: {d}")
-            self.core.set_state("loading", "Whisper yükleniyor...")
-            self.whisper = WhisperModel(str(d), device="cpu", compute_type="int8")
-            self.core.log("Whisper yüklendi.")
-        return self.whisper
+            if not quiet:
+                self.core.set_state("loading", "Model yükleniyor...")
+            t0 = time.time()
+            self.whisper = WhisperModel(str(d), device="cpu", compute_type="int8",
+                                        cpu_threads=max(2, min(6, os.cpu_count() or 4)))
+            self.whisper_key = key
+            self.core.log(f"Whisper ({key}) yüklendi ({time.time() - t0:.1f} sn).")
+            return self.whisper
+
+    def unload_whisper(self):
+        with self.wlock:
+            if self.whisper is not None:
+                self.whisper = None
+                self.whisper_key = None
+                gc.collect()
+                self.core.log("Whisper bellekten bırakıldı.")
+
+    def _preload(self):
+        try:
+            self.get_whisper(quiet=True)   # kullanici konusurken arka planda yuklenir
+        except Exception as e:
+            self.core.log(f"Model yüklenemedi: {e!r}")
 
     def session(self):
         import sounddevice as sd
@@ -354,8 +419,8 @@ class Engine(threading.Thread):
         for k in list(self.models):
             if k not in need:
                 del self.models[k]
-        if cfg["cmd_engine"] == "light" and self.whisper is not None:
-            self.whisper = None
+        if self.whisper is not None and self.whisper_key != cfg["cmd_engine"]:
+            self.unload_whisper()
         gc.collect()
         for n in need:
             self.get_model(n)
@@ -382,6 +447,10 @@ class Engine(threading.Thread):
             last, last_data = None, time.time()
             while not self.stop.is_set() and not self.reopen.is_set():
                 core.state["beat"] = time.time()
+                keep = cfg.get("keep_warm", 30)
+                if (self.whisper is not None and keep >= 0 and not self.busy
+                        and time.time() - self.last_use > keep):
+                    self.unload_whisper()
                 try:
                     data = aq.get(timeout=0.5)
                 except queue.Empty:
@@ -431,33 +500,51 @@ class Engine(threading.Thread):
 
     def handle_command(self, aq, thr):
         core, cfg = self.core, self.core.cfg
-        core.set_state("listen", "Dinliyorum...")
-        core.log("“Hey Tank” algılandı.")
-        if cfg.get("beep", True):
-            try:
-                import winsound
-                winsound.Beep(900, 120)
-            except Exception:
-                pass
-        self.flush(aq)
-        audio = self.record(aq, thr, cfg.get("max_record_sec", 7))
-        if audio is None:
-            core.log("Konuşma algılanmadı.")
-            return
-        core.set_state("think", "Anlaşılıyor...")
-        cmds = [c for c in core.commands if c.get("enabled", True)]
-        if cfg["cmd_engine"] == "light":
-            text = self.transcribe_light(audio, cmds)
-        else:
-            text = self.transcribe_whisper(audio, cmds)
-        core.log(f"Duyulan: “{text}”")
-        core.handle_text(text)
+        self.busy = True
+        try:
+            core.set_state("listen", "Dinliyorum...")
+            core.log("“Hey Tank” algılandı.")
+            if cfg["cmd_engine"] != "light":
+                threading.Thread(target=self._preload, daemon=True).start()
+            if cfg.get("beep", True):
+                threading.Thread(target=_beep, daemon=True).start()   # kaydi bloklamasin
+            text = ""
+            for attempt in range(2):
+                audio = self.record(aq, thr, cfg.get("max_record_sec", 7))
+                if audio is None:
+                    core.log("Konuşma algılanmadı.")
+                    return
+                core.set_state("think", "Anlaşılıyor...")
+                cmds = [c for c in core.commands if c.get("enabled", True)]
+                if cfg["cmd_engine"] == "light":
+                    raw = self.transcribe_light(audio, cmds)
+                else:
+                    raw = self.transcribe_whisper(audio, cmds)
+                text = strip_wake(raw)
+                core.log(f"Duyulan: “{raw}”")
+                if text:
+                    break
+                if attempt == 0:   # sadece "hey tank" duyuldu -> asil komutu bekle
+                    core.set_state("listen", "Dinliyorum...")
+            if text:
+                core.handle_text(text)
+        finally:
+            self.busy = False
+            self.last_use = time.time()
 
     def record(self, aq, thr, max_sec):
-        chunks, started, silence = [], False, 0.0
-        t0 = time.time()
-        while time.time() - t0 < max_sec and not self.stop.is_set():
-            self.core.state["beat"] = time.time()
+        """Uyandirmadan sonra konusmanin BASLAMASINI bekler, sonra susana kadar kaydeder.
+        Kuyruk bosaltilmaz: 'Hey Tank, youtube ac' tek nefeste soylense bile komut kaybolmaz."""
+        pre = deque(maxlen=4)           # konusma baslamadan onceki ~0.5 sn
+        chunks, started, hot, silence, n = [], False, 0, 0.0, 0
+        t0, t_on = time.time(), None
+        while not self.stop.is_set():
+            now = time.time()
+            self.core.state["beat"] = now
+            if started and now - t_on > max_sec:
+                break
+            if not started and now - t0 > 5:
+                return None
             try:
                 d = aq.get(timeout=0.5)
             except queue.Empty:
@@ -465,24 +552,41 @@ class Engine(threading.Thread):
             a = np.frombuffer(d, dtype=np.int16)
             rms = float(np.sqrt(np.mean(a.astype(np.float32) ** 2)))
             self.core.state["level"] = min(1.0, rms / 3000.0)
-            chunks.append(a)
-            if rms > thr:
-                started, silence = True, 0.0
-            elif started:
-                silence += len(a) / SR
-            if started and silence >= 0.9:
-                break
-            if not started and time.time() - t0 > 4:
-                return None
+            n += 1
+            if not started:
+                pre.append(a)
+                hot = hot + 1 if (n > 3 and rms > thr) else 0   # ilk ~0.4 sn: bip/"tank" kuyrugu
+                if hot >= 2:
+                    started, t_on, silence = True, now, 0.0
+                    chunks = list(pre)
+            else:
+                chunks.append(a)
+                silence = 0.0 if rms > thr else silence + len(a) / SR
+                if silence >= 1.0:
+                    break
         return np.concatenate(chunks) if (started and chunks) else None
 
     def transcribe_whisper(self, audio, cmds):
         w = self.get_whisper()
         self.core.set_state("think", "Anlaşılıyor...")
-        prompt = ", ".join(p for c in cmds for p in c.get("phrases", []))[:350]
-        segs, _ = w.transcribe(audio.astype(np.float32) / 32768.0, language="tr",
-                               beam_size=1, initial_prompt=prompt or None,
-                               condition_on_previous_text=False)
+        x = audio.astype(np.float32) / 32768.0
+        rms = float(np.sqrt(np.mean(x ** 2))) + 1e-6
+        x = np.clip(x * float(np.clip(0.06 / rms, 1.0, 6.0)), -1.0, 1.0)   # sessiz mikrofonu yukselt
+        pad = np.zeros(int(0.3 * SR), dtype=np.float32)
+        x = np.concatenate([pad, x, pad])
+        words = []
+        for c in cmds:
+            for p in c.get("phrases", []):
+                for wd in p.replace("'", " ").split():
+                    if len(wd) >= 3 and wd not in words:
+                        words.append(wd)
+        hot = " ".join(words)[:300]
+        kw = dict(language="tr", beam_size=5, temperature=0.0, without_timestamps=True,
+                  condition_on_previous_text=False)
+        try:
+            segs, _ = w.transcribe(x, hotwords=hot or None, **kw)
+        except TypeError:   # eski faster-whisper
+            segs, _ = w.transcribe(x, **kw)
         return " ".join(s.text for s in segs).strip()
 
     def transcribe_light(self, audio, cmds):
@@ -572,7 +676,7 @@ class Api:
             return False
         if key == "mic_device":
             value = None if value in (None, "") else int(value)
-        elif key in ("match_threshold", "max_record_sec"):
+        elif key in ("match_threshold", "max_record_sec", "keep_warm"):
             value = int(value)
         elif key in ("beep", "listening", "strict_wake"):
             value = bool(value)
@@ -581,6 +685,16 @@ class Api:
         if key in ("mic_device", "wake_lang", "cmd_engine", "strict_wake"):
             c.engine.reopen.set()
         return True
+
+    def add_phrase(self, cid, text):
+        c = self._core
+        text = (text or "").strip()
+        for x in c.commands:
+            if x["id"] == cid and text and text not in x["phrases"]:
+                x["phrases"].append(text)
+                c.log(f"Cümle eklendi: “{text}” → {x['name']}")
+        c.save_commands()
+        return c.commands
 
     def set_autostart(self, on):
         try:
@@ -620,6 +734,28 @@ class App:
         self.window = None
         self.tray = None
 
+    def set_window_icon(self, *a):
+        """Gorev cubugu / baslik cubugu ikonu (exe ikonu gomulu olmasa bile T gorunur)."""
+        try:
+            ico = RES / "assets" / "icon.ico"
+            if not ico.exists():
+                return
+            u = ctypes.windll.user32
+            u.FindWindowW.restype = ctypes.c_void_p
+            u.LoadImageW.restype = ctypes.c_void_p
+            u.SendMessageW.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p]
+            hwnd = u.FindWindowW(None, "Hey Tank")
+            if not hwnd:
+                return
+            big = u.LoadImageW(None, str(ico), 1, 32, 32, 0x10)
+            small = u.LoadImageW(None, str(ico), 1, 16, 16, 0x10)
+            if big:
+                u.SendMessageW(hwnd, 0x80, 1, big)
+            if small:
+                u.SendMessageW(hwnd, 0x80, 0, small)
+        except Exception:
+            pass
+
     def hide(self):
         if self.window:
             self.window.hide()
@@ -658,6 +794,10 @@ class App:
 
     def run(self):
         import webview
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("HeyTank.App")
+        except Exception:
+            pass
         if get_autostart():
             try:
                 set_autostart(True)   # klasor tasinmissa yolu guncelle
@@ -670,6 +810,8 @@ class App:
             width=1100, height=680, min_size=(900, 560),
             background_color="#0E0E0E", hidden=self.hidden)
         self.window.events.closing += self.on_closing
+        self.window.events.loaded += self.set_window_icon
+        self.window.events.shown += self.set_window_icon
         try:
             webview.start(gui="edgechromium", storage_path=str(BASE / "webview-data"))
         except Exception as e:
