@@ -48,17 +48,36 @@ DEFAULT_CONFIG = {
     "listening": True,
     "wake_lang": "tr",          # tr | en
     "cmd_engine": "whisper",    # whisper | light
+    "strict_wake": True,        # True: "hey" + "tank" birlikte gerekir
 }
 
 WAKE_GRAMMAR = {
     "tr": ["hey tank", "ey tank", "hey tenk", "hey tanık"],
     "en": ["hey tank", "hay tank", "hey thank", "hey tang"],
 }
-WAKE_TOKENS = {"tank", "tenk", "tanık", "thank", "tang"}
+HEY_TOKENS = {"hey", "ey", "hay", "he", "hei"}
+TANK_TOKENS = {"tank", "tenk", "tanık", "thank", "tang"}
 
 
-def is_wake(text: str) -> bool:
-    return any(t in WAKE_TOKENS for t in text.split())
+def is_wake(text: str, strict: bool = True) -> bool:
+    t = text.split()
+    if not strict:
+        return any(w in TANK_TOKENS for w in t)
+    return any(a in HEY_TOKENS and b in TANK_TOKENS for a, b in zip(t, t[1:]))
+
+
+def build_wake(model, wake, strict):
+    """Modelin sozlugunde olmayan kelimeleri ayiklar. 'hey' bilinmiyorsa tek 'tank'a duser."""
+    def known(w):
+        try:
+            return model.vosk_model_find_word(w) >= 0
+        except Exception:
+            return True
+    phrases = [p for p in WAKE_GRAMMAR[wake] if all(known(w) for w in p.split())]
+    if strict and phrases:
+        return phrases, True
+    singles = [w for w in ("tank", "tenk", "tanık", "thank") if known(w)] or ["tank"]
+    return singles, False
 
 
 # ----------------------------------------------------------------------------
@@ -341,7 +360,15 @@ class Engine(threading.Thread):
         for n in need:
             self.get_model(n)
         wake_model = self.models[wake]
-        rec = KaldiRecognizer(wake_model, SR, json.dumps(WAKE_GRAMMAR[wake] + ["[unk]"]))
+        phrases, strict = build_wake(wake_model, wake, cfg.get("strict_wake", True))
+        if strict:
+            core.log("Uyandırma: “hey tank” (hey + tank birlikte).")
+        elif cfg.get("strict_wake", True):
+            core.log("Uyarı: model “hey” kelimesini bilmiyor, yalnızca “tank” ile uyanıyor. "
+                     "Ayarlardan İngilizce modeli dene.")
+        else:
+            core.log("Uyandırma: yalnızca “tank” (sıkı algılama kapalı).")
+        rec = KaldiRecognizer(wake_model, SR, json.dumps(phrases + ["[unk]"], ensure_ascii=False))
 
         aq = queue.Queue()
 
@@ -383,7 +410,7 @@ class Engine(threading.Thread):
                     txt = json.loads(rec.PartialResult()).get("partial", "")
                 if txt and txt != "[unk]":
                     core.state["heard"] = txt
-                if is_wake(txt):
+                if is_wake(txt, strict):
                     rec.Reset()
                     thr = float(min(2500.0, max(300.0, np.median(noise) * 2.5)))
                     try:
@@ -545,11 +572,11 @@ class Api:
             value = None if value in (None, "") else int(value)
         elif key in ("match_threshold", "max_record_sec"):
             value = int(value)
-        elif key in ("beep", "listening"):
+        elif key in ("beep", "listening", "strict_wake"):
             value = bool(value)
         c.cfg[key] = value
         c.save_cfg()
-        if key in ("mic_device", "wake_lang", "cmd_engine"):
+        if key in ("mic_device", "wake_lang", "cmd_engine", "strict_wake"):
             c.engine.reopen.set()
         return True
 

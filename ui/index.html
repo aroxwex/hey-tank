@@ -185,6 +185,7 @@ function renderSettings(){
   $("setbox").innerHTML=`
   <div class="sr"><div>Mikrofon<small>Değişince mikrofon otomatik yeniden başlar.</small></div>${sl("mic_device",S.mics.map(m=>[m.id,m.name]))}</div>
   <div class="sr"><div>Uyandırma dinleyicisi<small>“Hey Tank” bazen tutmazsa diğerini dene (Kayıt sekmesinde ne duyduğunu görürsün).</small></div>${sl("wake_lang",[["tr","Türkçe model"],["en","İngilizce model"]])}</div>
+  <div class="sr"><div>Sıkı “Hey Tank” algılama<small>Açıkken “hey” ve “tank” birlikte duyulmalı. Kapalıysa tek başına “tank” de uyandırır.</small></div>${tg("strict_wake",c.strict_wake!==false)}</div>
   <div class="sr"><div>Komut anlama<small>Whisper esnektir (~1 GB RAM). Hafif mod sadece listendeki cümleleri tanır (~0,5 GB RAM), yabancı kelimelerde zayıf kalabilir.</small></div>${sl("cmd_engine",[["whisper","Whisper small (esnek)"],["light","Hafif (Vosk)"]])}</div>
   <div class="sr"><div>Eşleşme hassasiyeti: %<span id="mt">${c.match_threshold}</span><small>Düşük = daha toleranslı, yanlış tetikleme riski artar.</small></div><input type="range" min="60" max="100" value="${c.match_threshold}" data-r="match_threshold"></div>
   <div class="sr"><div>En fazla dinleme süresi: <span id="ms">${c.max_record_sec}</span> sn</div><input type="range" min="3" max="12" value="${c.max_record_sec}" data-r="max_record_sec"></div>
@@ -202,6 +203,7 @@ document.addEventListener("click",async e=>{
   if(t.dataset.e){openEdit(t.dataset.e);return}
   if(t.dataset.d){const c=S.cmds.find(x=>x.id===t.dataset.d);if(confirm(`“${c.name}” silinsin mi?`)){S.cmds=await api().delete_command(c.id);setView("commands")}return}
   if(t.dataset.tg==="beep"){S.cfg.beep=!S.cfg.beep;await api().set_config("beep",S.cfg.beep);renderSettings();return}
+  if(t.dataset.tg==="strict_wake"){S.cfg.strict_wake=!(S.cfg.strict_wake!==false);await api().set_config("strict_wake",S.cfg.strict_wake);renderSettings();return}
   if(t.dataset.tg==="autostart"){S.auto=await api().set_autostart(!S.auto);renderSettings();return}
   if(t.classList.contains("rw")&&t.dataset.id){sel=t.dataset.id;renderList()}
 });
