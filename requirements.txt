@@ -1,8 +1,7 @@
-faster-whisper
+google-genai
 vosk
 sounddevice
 numpy
-rapidfuzz
 pywebview
 pystray
 pillow

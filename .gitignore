@@ -3,6 +3,7 @@ build/
 dist/
 *.spec
 config.json
+shortcuts.json
 commands.json
 models/
 webview-data/

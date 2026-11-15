@@ -17,17 +17,10 @@ aside{width:208px;background:var(--side);border-right:1px solid var(--line);padd
 .nv i{font-style:normal;color:var(--mut)}
 .nv:hover{background:var(--hover)}
 .nv.a{background:var(--hover);color:var(--txt)}
-main{flex:1;padding:24px 28px;display:flex;flex-direction:column;gap:20px;min-width:0}
-.strip{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--side);border:1px solid var(--line);border-radius:6px}
-.mic{width:36px;height:36px;border:1px solid var(--line3);border-radius:6px;display:flex;align-items:center;justify-content:center}
-.dot{width:6px;height:6px;border-radius:50%;background:var(--dim);display:inline-block;margin-right:8px}
-.meter{display:flex;align-items:center;gap:3px;height:20px}
-.meter b{width:2px;height:4px;border-radius:1px;background:var(--off)}
-.meter b.a{background:var(--ok)}
-.tg{width:28px;height:16px;border-radius:8px;border:0;background:var(--off);padding:2px;display:flex;flex:none}
-.tg.on{background:var(--ok);justify-content:flex-end}
-.tg u{width:12px;height:12px;border-radius:50%;background:var(--mut)}
-.tg.on u{background:var(--ink)}
+main{flex:1;padding:24px 28px;display:flex;flex-direction:column;min-width:0}
+.view{display:none;flex-direction:column;gap:18px;flex:1;min-height:0}
+.view.on{display:flex}
+h2{margin:0;font-size:14px;font-weight:600}
 .bar{display:flex;align-items:center;gap:10px}
 input,select,textarea{background:var(--bg);border:1px solid var(--line3);border-radius:5px;color:var(--txt);font:inherit;padding:0 10px;user-select:text}
 input,select{height:30px}
@@ -36,33 +29,52 @@ input:focus,select:focus,textarea:focus{outline:1px solid var(--dim)}
 .pri{height:30px;border:0;border-radius:5px;padding:0 14px;background:var(--txt);color:var(--ink);font-weight:500}
 .bt{border:1px solid var(--line3);background:var(--btn);border-radius:5px;padding:5px 10px;font-size:12px;font-weight:500}
 .bt.d{background:var(--dbg);border-color:var(--dbg);color:var(--dng)}
+.tg{width:28px;height:16px;border-radius:8px;border:0;background:var(--off);padding:2px;display:flex;flex:none}
+.tg.on{background:var(--ok);justify-content:flex-end}
+.tg u{width:12px;height:12px;border-radius:50%;background:var(--mut)}
+.tg.on u{background:var(--ink)}
+/* ana sayfa */
+.home{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:0}
+#orb{width:min(380px,52vh);height:min(380px,52vh);cursor:pointer}
+.status{font-size:15px;font-weight:500;letter-spacing:.02em;display:flex;align-items:center;gap:8px}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--dim)}
+.chat{width:min(560px,100%);min-height:84px;display:flex;flex-direction:column;gap:6px;justify-content:flex-end}
+.msg{padding:7px 12px;border:1px solid var(--line);border-radius:6px;background:var(--side);color:var(--sec);font-size:13px;user-select:text}
+.msg b{color:var(--mut);font-weight:500;margin-right:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.msg.m{color:var(--txt)}
+.hint{display:flex;align-items:center;gap:14px;color:var(--mut);font-size:12px}
+.banner{border:1px solid var(--line2);background:var(--panel);border-radius:6px;padding:10px 14px;display:flex;align-items:center;gap:12px;color:var(--sec)}
+/* listeler */
 .list{background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:auto;flex:1}
-.rw{display:grid;grid-template-columns:36px 150px 1fr 120px 200px;align-items:center;padding:0 14px;height:44px;border-bottom:1px solid var(--div)}
+.rw{display:grid;grid-template-columns:36px 170px 1fr 110px 200px;align-items:center;padding:0 14px;min-height:44px;border-bottom:1px solid var(--div)}
 .rw:last-child{border-bottom:0}
 .rw b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rw code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding-right:10px}
-.rw.off b,.rw.off code{color:var(--mut)}
+.rw.off b,.rw.off code,.rw.off .ds{color:var(--mut)}
 .rw.sel{background:var(--hover)}
-.rw.hd{height:34px;font-size:11px;color:var(--mut);background:var(--side);position:sticky;top:0}
+.rw.hd{min-height:34px;font-size:11px;color:var(--mut);background:var(--side);position:sticky;top:0}
+.rw.tl{grid-template-columns:36px 230px 1fr 90px;padding-top:8px;padding-bottom:8px}
+.ds{color:var(--sec);font-size:12px;padding-right:12px}
 .act{display:flex;gap:6px;justify-content:flex-end;visibility:hidden}
 .rw:hover .act,.rw.sel .act{visibility:visible}
 .tag{font-style:normal;font-size:11px;color:var(--sec);border:1px solid var(--line2);border-radius:4px;padding:2px 8px;justify-self:start}
+.tag.w{color:var(--dng);border-color:var(--dbg)}
 .empty{padding:40px;text-align:center;color:var(--mut)}
-.set{max-width:620px;display:flex;flex-direction:column}
-.sr{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:14px 0;border-bottom:1px solid var(--div)}
-.sr small{display:block;color:var(--mut);font-size:12px;margin-top:2px;max-width:340px}
-.sr select{min-width:240px}
+/* ayarlar */
+.set{max-width:660px;display:flex;flex-direction:column;overflow:auto;padding-right:8px}
+.sh{font-size:11px;letter-spacing:.08em;color:var(--mut);padding:18px 0 4px}
+.sr{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:12px 0;border-bottom:1px solid var(--div)}
+.sr small{display:block;color:var(--mut);font-size:12px;margin-top:2px;max-width:330px}
+.sr select{min-width:230px}
 .sr input[type=range]{padding:0;width:200px;accent-color:var(--ok);border:0}
+.res{font-size:12px;color:var(--mut);margin-top:6px}
 pre{margin:0;flex:1;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:12px;color:var(--sec);font:12px/1.6 "Cascadia Mono",Consolas,monospace;user-select:text;white-space:pre-wrap}
-.ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:5}
 .ov.on{display:flex}
 .dlg{width:480px;max-height:92%;overflow:auto;background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:20px;display:flex;flex-direction:column;gap:12px}
 .dlg label{display:flex;flex-direction:column;gap:5px;color:var(--sec);font-size:12px}
 .dlg h3{margin:0 0 4px;font-size:14px}
 .row{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
-h2{margin:0;font-size:14px;font-weight:600}
-.view{display:none;flex-direction:column;gap:20px;flex:1;min-height:0}
-.view.on{display:flex}
 ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--knob);border-radius:4px}
 </style>
 </head>
@@ -70,207 +82,242 @@ h2{margin:0;font-size:14px;font-weight:600}
 <div id="app">
 <aside>
  <div class="brand"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x=".5" y=".5" width="23" height="23" rx="5.5" fill="#171717" stroke="#3A3A3A"/><rect x="5.6" y="5.8" width="12.8" height="3.3" rx=".8" fill="#EDEDED"/><rect x="10.2" y="5.8" width="3.4" height="12.6" rx=".8" fill="#EDEDED"/><circle cx="17.4" cy="17.2" r="1.8" fill="#4ADE80"/></svg>Tank</div>
- <div class="lb">KOMUTLAR</div>
- <div id="cats"></div>
+ <button class="nv a" data-view="home"><span>Ana sayfa</span></button>
+ <button class="nv" data-view="shortcuts"><span>Kısayollar</span><i id="n-sc">0</i></button>
+ <button class="nv" data-view="tools"><span>Araçlar</span></button>
  <div style="flex:1"></div>
- <div class="lb">UYGULAMA</div>
  <button class="nv" data-view="settings"><span>Ayarlar</span></button>
  <button class="nv" data-view="log"><span>Kayıt</span></button>
  <button class="nv" id="quit"><span>Çıkış</span></button>
- <div style="padding:12px 10px 0;font-size:11px;color:var(--mut)">Çevrimdışı · Türkçe</div>
+ <div style="padding:12px 10px 0;font-size:11px;color:var(--mut)">Gemini Live · v<span id="ver">2.0</span></div>
 </aside>
 <main>
- <div class="strip">
-  <div class="mic"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C8C8C8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
-  <div style="flex:1;min-width:0">
-   <div style="font-size:14px;font-weight:500"><span class="dot" id="dot"></span><span id="status">Başlatılıyor...</span></div>
-   <div style="font-size:12px;color:var(--mut);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" id="last">Henüz komut yok</div>
+ <section class="view on" id="v-home">
+  <div class="home">
+   <div id="banner" class="banner" style="display:none">Gemini API anahtarı gerekli, yoksa Tank konuşamaz. <button class="bt" data-view="settings">Ayarlar</button></div>
+   <canvas id="orb" width="440" height="440" aria-label="Konuşmak için dokun"></canvas>
+   <div class="status"><span class="dot" id="dot"></span><span id="status">Başlatılıyor...</span></div>
+   <div class="chat" id="chat"></div>
+   <div class="hint"><span>Daireye dokun · Ctrl+Alt+T · “Hey Tank”</span>
+    <label style="display:flex;align-items:center;gap:8px">“Hey Tank” dinleme<button class="tg on" id="listen" aria-label="Hey Tank dinlemeyi aç/kapat"><u></u></button></label></div>
   </div>
-  <button class="bt" id="addph" style="display:none">Komuta ekle</button>
-  <div class="meter" id="meter"></div>
-  <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--sec);margin-left:8px">Dinleme<button class="tg on" id="listen" aria-label="Dinlemeyi aç/kapat"><u></u></button></label>
- </div>
+ </section>
 
- <section class="view on" id="v-commands">
-  <div class="bar"><h2 id="vt" style="flex:1">Tümü</h2>
-   <input id="q" aria-label="Komut ara" placeholder="Ara" style="width:180px">
-   <button class="pri" id="new">Yeni komut</button></div>
+ <section class="view" id="v-shortcuts">
+  <div class="bar"><h2 style="flex:1">Kısayollar</h2><button class="pri" id="new">Yeni kısayol</button></div>
+  <div class="ds" style="margin-top:-8px;max-width:640px">Kendi adlandırdığın işler: bir oyun, bir program ya da rastgele açılan siteler. Tank adını duyunca çalıştırır (“Manifest aç”, “CS2'yi aç”). Diğer her şeyi (site, uygulama, müzik, ses...) kısayol olmadan da yapabilir.</div>
   <div class="list" id="list"></div>
  </section>
 
- <section class="view" id="v-settings"><h2>Ayarlar</h2><div class="set" id="setbox" style="overflow:auto"></div></section>
+ <section class="view" id="v-tools">
+  <h2>Araçlar</h2>
+  <div class="ds" style="margin-top:-8px;max-width:640px">Tank'ın bilgisayarında yapabileceği işler. Kapattığın araç Tank'a hiç gösterilmez. “Onay ister” olanlar her seferinde ekranda sana sorar.</div>
+  <div class="list" id="toolist"></div>
+ </section>
+
+ <section class="view" id="v-settings"><h2>Ayarlar</h2><div class="set" id="setbox"></div></section>
 
  <section class="view" id="v-log"><h2>Kayıt</h2>
   <div class="mono" id="heard" style="color:var(--mut)"></div>
   <pre id="logbox"></pre>
-  <div class="bar"><input id="try" aria-label="Komutu yazarak dene" placeholder="Komutu yazarak dene (örn: youtube aç)" style="flex:1"><button class="bt" id="tryb" style="height:30px">Dene</button></div>
  </section>
 </main>
 </div>
 
 <div class="ov" id="ov"><div class="dlg" id="dlg"></div></div>
+<div class="ov" id="cov"><div class="dlg"><h3 id="c-title"></h3><div class="mono" id="c-detail" style="white-space:pre-wrap;user-select:text"></div>
+ <div class="row"><button class="bt" id="c-no">Hayır</button><button class="pri" id="c-yes">Evet, çalıştır</button></div></div></div>
 
 <script>
-const KINDS={all:"Tümü",site:"Siteler",program:"Programlar",game:"Oyunlar",random:"Rastgele",system:"Sistem"};
-let lastMiss=null;
-let S={cmds:[],cfg:{},mics:[],sys:{},auto:false}, filter="all", view="commands", sel=null, seq=0, bars=[];
+let S={shortcuts:[],cfg:{},mics:[],outs:[],voices:[],tools:[],auto:false,hasKey:false,models:[]}, view="home", sel=null, seq=0, pol={state:"loading"}, chatKey="", confirmId=null;
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const api=()=>window.pywebview.api;
+const COL={wait:"#8A8A8A",connecting:"#C8C8C8",listen:"#4ADE80",think:"#EDEDED",speak:"#4ADE80",pause:"#6A6A6A",loading:"#8A8A8A",error:"#FF9A9A"};
 
-function kindOf(c){
-  if(c.system)return"system";
-  if(c.mode==="random"&&c.targets.length>1)return"random";
-  const t=(c.targets[0]||"").toLowerCase();
-  if(t.startsWith("steam:"))return"game";
-  if(/^(https?:|spotify:)/.test(t))return"site";
-  return"program";
+/* ---------- ana sayfa: daire ---------- */
+const cv=$("orb"), cx=cv.getContext("2d"), SZ=440, DPR=Math.min(2,window.devicePixelRatio||1);
+cv.width=SZ*DPR; cv.height=SZ*DPR; cx.scale(DPR,DPR);
+let T=0, lastT=performance.now(), rot=0, lvl=0;
+const rgba=(h,a)=>{const n=parseInt(h.slice(1),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`};
+function draw(now){
+  const dt=Math.min(.05,(now-lastT)/1000); lastT=now; T+=dt;
+  const m=pol.state||"wait", col=COL[m]||COL.wait;
+  const target=m==="speak"?(pol.level_out||0):m==="listen"?(pol.level||0):m==="think"?.25:0;
+  lvl+=(target-lvl)*Math.min(1,dt*10);
+  rot+=dt*({wait:.15,connecting:1,listen:.4,think:1.6,speak:.6,pause:.05,error:.1,loading:.5}[m]??.15);
+  cx.clearRect(0,0,SZ,SZ); cx.save(); cx.translate(SZ/2,SZ/2); cx.lineCap="round";
+  const g=cx.createRadialGradient(0,0,10,0,0,205); g.addColorStop(0,rgba(col,.10+lvl*.2)); g.addColorStop(1,rgba(col,0));
+  cx.fillStyle=g; cx.beginPath(); cx.arc(0,0,205,0,6.3); cx.fill();
+  cx.strokeStyle="#2A2A2A"; cx.lineWidth=1; cx.beginPath(); cx.arc(0,0,208,0,6.3); cx.stroke();
+  for(let i=0;i<180;i++){const a=i/180*6.2832+rot*.15, big=i%15===0, r2=big?186:193;
+    cx.strokeStyle=big?rgba(col,.75):"#3A3A3A"; cx.lineWidth=big?1.5:1; cx.beginPath();
+    cx.moveTo(Math.cos(a)*200,Math.sin(a)*200); cx.lineTo(Math.cos(a)*r2,Math.sin(a)*r2); cx.stroke();}
+  [[170,3,.9,1],[162,2,.5,-1.3],[154,4,.7,.8]].forEach(([r,w,len,dir],k)=>{
+    cx.strokeStyle=rgba(col,k===0?.75:.4); cx.lineWidth=w;
+    for(let j=0;j<3;j++){const a0=rot*dir*1.2+j*2.094+k; cx.beginPath(); cx.arc(0,0,r,a0,a0+len); cx.stroke();}});
+  cx.setLineDash([2,7]); cx.lineDashOffset=-rot*40; cx.strokeStyle="#5A5A5A"; cx.lineWidth=1; cx.beginPath(); cx.arc(0,0,136,0,6.3); cx.stroke(); cx.setLineDash([]);
+  const N=160, amp=3+lvl*30; cx.beginPath();
+  for(let i=0;i<=N;i++){const a=i/N*6.2832, n=Math.sin(a*5+T*3)*.5+Math.sin(a*9-T*4.1)*.35+Math.sin(a*13+T*2.3)*.25;
+    const rr=100+amp*n*(.4+lvl*1.4)+(m==="wait"?Math.sin(T*1.2)*2:0), x=Math.cos(a)*rr, y=Math.sin(a)*rr; i?cx.lineTo(x,y):cx.moveTo(x,y);}
+  cx.closePath(); cx.shadowColor=col; cx.shadowBlur=10+lvl*14; cx.strokeStyle=col; cx.lineWidth=2; cx.stroke(); cx.shadowBlur=0;
+  cx.strokeStyle="#3A3A3A"; cx.lineWidth=1; cx.beginPath(); cx.arc(0,0,66,0,6.3); cx.stroke();
+  cx.fillStyle="#8A8A8A"; cx.font="600 15px 'Segoe UI Variable Text','Segoe UI',sans-serif"; cx.textAlign="center"; cx.textBaseline="middle";
+  try{cx.letterSpacing="6px"}catch(e){} cx.fillText("TANK",3,1); cx.restore();
 }
-function tagOf(c){const k=kindOf(c);return k==="random"?`Rastgele · ${c.targets.length}`:{site:"Site",program:"Program",game:"Oyun",system:"Sistem"}[k]}
+function loop(now){ if(view==="home"&&!document.hidden)draw(now); else lastT=now; requestAnimationFrame(loop); }
+$("orb").onclick=()=>api().talk();
 
-function renderCats(){
-  const n=k=>k==="all"?S.cmds.length:S.cmds.filter(c=>kindOf(c)===k).length;
-  $("cats").innerHTML=Object.keys(KINDS).map(k=>`<button class="nv ${view==="commands"&&filter===k?"a":""}" data-f="${k}"><span>${KINDS[k]}</span><i>${n(k)}</i></button>`).join("");
-  document.querySelectorAll("[data-view]").forEach(b=>b.classList.toggle("a",b.dataset.view===view));
+function renderChat(list){
+  const k=JSON.stringify(list); if(k===chatKey)return; chatKey=k;
+  $("chat").innerHTML=list.slice(-4).map(m=>`<div class="msg ${m.role==="user"?"u":"m"}"><b>${m.role==="user"?"Sen":"Tank"}</b>${esc(m.text)}</div>`).join("");
 }
-function renderList(){
-  const q=$("q").value.trim().toLowerCase();
-  const rows=S.cmds.filter(c=>(filter==="all"||kindOf(c)===filter)&&(!q||(c.name+" "+c.phrases.join(" ")).toLowerCase().includes(q)));
-  let h=`<div class="rw hd"><span></span><span>Ad</span><span>Söylenecek</span><span>Tür</span><span></span></div>`;
-  if(!rows.length)h+=`<div class="empty">Burada komut yok.</div>`;
-  h+=rows.map(c=>`<div class="rw ${c.enabled?"":"off"} ${sel===c.id?"sel":""}" data-id="${c.id}">
-   <button class="tg ${c.enabled?"on":""}" data-t="${c.id}" aria-label="${esc(c.name)} komutunu aç/kapat"><u></u></button>
-   <b>${esc(c.name)}</b><code>${c.phrases.slice(0,2).map(p=>"“"+esc(p)+"”").join(" ")}</code><i class="tag">${tagOf(c)}</i>
+
+/* ---------- gezinme ---------- */
+function setView(v){
+  view=v;
+  ["home","shortcuts","tools","settings","log"].forEach(x=>$("v-"+x).classList.toggle("on",x===v));
+  document.querySelectorAll("[data-view]").forEach(b=>b.classList.toggle("a",b.dataset.view===v));
+  if(v==="shortcuts")renderShortcuts(); if(v==="tools")renderTools(); if(v==="settings")renderSettings();
+  $("banner").style.display=(!S.hasKey&&v==="home")?"flex":"none";
+}
+
+/* ---------- kisayollar ---------- */
+function tagOf(s){return s.mode==="random"&&s.targets.length>1?`Rastgele · ${s.targets.length}`:(s.targets[0]||"").toLowerCase().startsWith("steam:")?"Oyun":/^(https?:)/i.test(s.targets[0]||"")?"Site":"Program"}
+function renderShortcuts(){
+  $("n-sc").textContent=S.shortcuts.length;
+  let h=`<div class="rw hd"><span></span><span>Ad</span><span>Ne zaman (ipucu)</span><span>Tür</span><span></span></div>`;
+  if(!S.shortcuts.length)h+=`<div class="empty">Henüz kısayol yok.</div>`;
+  h+=S.shortcuts.map(c=>`<div class="rw ${c.enabled?"":"off"} ${sel===c.id?"sel":""}" data-id="${c.id}">
+   <button class="tg ${c.enabled?"on":""}" data-t="${c.id}" aria-label="${esc(c.name)} aç/kapat"><u></u></button>
+   <b>${esc(c.name)}</b><code>${esc(c.hint||"")}</code><i class="tag">${tagOf(c)}</i>
    <span class="act"><button class="bt" data-r="${c.id}">Dene</button><button class="bt" data-e="${c.id}">Düzenle</button><button class="bt d" data-d="${c.id}">Sil</button></span></div>`).join("");
   $("list").innerHTML=h;
 }
-function setView(v,f){
-  if(f)filter=f; view=v;
-  ["commands","settings","log"].forEach(x=>$("v-"+x).classList.toggle("on",x===v));
-  $("vt").textContent=KINDS[filter];
-  renderCats(); if(v==="commands")renderList(); if(v==="settings")renderSettings();
-}
-
-/* ---- komut penceresi ---- */
 function openEdit(id){
-  const c=S.cmds.find(x=>x.id===id)||{id:"",name:"",phrases:[],targets:[],system:null,mode:"all",args:"",enabled:true};
-  const isSys=!!c.system;
-  $("dlg").innerHTML=`<h3>${id?"Komutu düzenle":"Yeni komut"}</h3>
-  <label>Komut adı<input id="f-name" value="${esc(c.name)}"></label>
-  <label>Söyleyeceğin cümleler (her satıra bir tane)<textarea id="f-ph" rows="3">${esc(c.phrases.join("\n"))}</textarea></label>
-  <label>Ne yapsın?<select id="f-kind"><option value="open" ${isSys?"":"selected"}>Site / program / dosya aç</option><option value="sys" ${isSys?"selected":""}>Sistem eylemi</option></select></label>
-  <div id="f-open" style="display:${isSys?"none":"flex"};flex-direction:column;gap:12px">
-   <label>Hedefler (her satıra bir tane: site, .exe yolu, steam://rungameid/...)<textarea id="f-tg" rows="3">${esc(c.targets.join("\n"))}</textarea></label>
-   <div><button class="bt" id="f-pick">Dosya seç (.exe vb.)</button></div>
-   <label>Birden fazla hedef varsa<select id="f-mode"><option value="all" ${c.mode==="random"?"":"selected"}>Hepsini aç</option><option value="random" ${c.mode==="random"?"selected":""}>Rastgele birini aç</option></select></label>
-   <label>Program parametreleri (isteğe bağlı)<input id="f-args" value="${esc(c.args)}"></label></div>
-  <div id="f-sys" style="display:${isSys?"flex":"none"};flex-direction:column"><label>Eylem<select id="f-sa">${Object.entries(S.sys).map(([k,v])=>`<option value="${k}" ${c.system===k?"selected":""}>${esc(v)}</option>`).join("")}</select></label></div>
+  const c=S.shortcuts.find(x=>x.id===id)||{id:"",name:"",hint:"",targets:[],mode:"all",args:"",enabled:true};
+  $("dlg").innerHTML=`<h3>${id?"Kısayolu düzenle":"Yeni kısayol"}</h3>
+  <label>Ad (Tank bu adı duyunca çalıştırır)<input id="f-name" value="${esc(c.name)}"></label>
+  <label>İpucu (ne dediğinde? örn. “oyun, counter strike”)<input id="f-hint" value="${esc(c.hint||"")}"></label>
+  <label>Hedefler (her satıra bir tane: site, .exe yolu, steam://rungameid/...)<textarea id="f-tg" rows="4">${esc(c.targets.join("\n"))}</textarea></label>
+  <div><button class="bt" id="f-pick">Dosya seç (.exe vb.)</button></div>
+  <label>Birden fazla hedef varsa<select id="f-mode"><option value="all" ${c.mode==="random"?"":"selected"}>Hepsini aç</option><option value="random" ${c.mode==="random"?"selected":""}>Rastgele birini aç</option></select></label>
+  <label>Program parametreleri (isteğe bağlı)<input id="f-args" value="${esc(c.args||"")}"></label>
   <div class="row"><button class="bt" id="f-cancel">İptal</button><button class="pri" id="f-save">Kaydet</button></div>`;
   $("ov").classList.add("on");
-  $("f-kind").onchange=e=>{const s=e.target.value==="sys";$("f-open").style.display=s?"none":"flex";$("f-sys").style.display=s?"flex":"none"};
   $("f-cancel").onclick=()=>$("ov").classList.remove("on");
   $("f-pick").onclick=async()=>{const p=await api().pick_file();if(p){const t=$("f-tg");t.value=(t.value.trim()?t.value.trim()+"\n":"")+p}};
   $("f-save").onclick=async()=>{
-    const lines=v=>v.split("\n").map(s=>s.trim()).filter(Boolean);
-    const o={...c,name:$("f-name").value.trim(),phrases:lines($("f-ph").value)};
-    if($("f-kind").value==="sys"){o.system=$("f-sa").value;o.targets=[];o.args="";}
-    else{o.system=null;o.targets=lines($("f-tg").value);o.mode=$("f-mode").value;o.args=$("f-args").value.trim();}
-    if(!o.name||!o.phrases.length||(!o.system&&!o.targets.length)){alert("Ad, en az bir cümle ve bir hedef gerekli.");return}
-    S.cmds=await api().save_command(o);$("ov").classList.remove("on");setView(view);
+    const o={...c,name:$("f-name").value.trim(),hint:$("f-hint").value.trim(),targets:$("f-tg").value.split("\n").map(s=>s.trim()).filter(Boolean),mode:$("f-mode").value,args:$("f-args").value.trim()};
+    if(!o.name||!o.targets.length){alert("Ad ve en az bir hedef gerekli.");return}
+    S.shortcuts=await api().save_shortcut(o);$("ov").classList.remove("on");renderShortcuts();
   };
 }
 
-function openAddPhrase(text){
-  $("dlg").innerHTML=`<h3>Bu cümleyi bir komuta ekle</h3>
-  <label>Duyulan cümle (düzeltebilirsin)<input id="f-txt" value="${esc(text)}"></label>
-  <label>Hangi komut?<select id="f-cmd">${S.cmds.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></label>
-  <div class="row"><button class="bt" id="f-cancel">İptal</button><button class="pri" id="f-save">Ekle</button></div>`;
-  $("ov").classList.add("on");
-  $("f-cancel").onclick=()=>$("ov").classList.remove("on");
-  $("f-save").onclick=async()=>{const t=$("f-txt").value.trim();if(!t)return;S.cmds=await api().add_phrase($("f-cmd").value,t);$("ov").classList.remove("on");setView(view)};
+/* ---------- araclar ---------- */
+function renderTools(){
+  $("toolist").innerHTML=S.tools.map(t=>`<div class="rw tl ${t.enabled?"":"off"}">
+   <button class="tg ${t.enabled?"on":""}" data-tool="${t.name}" aria-label="${esc(t.label)} aç/kapat"><u></u></button>
+   <b>${esc(t.label)}</b><span class="ds">${esc(t.desc)}</span>${t.danger?'<i class="tag w">Onay ister</i>':"<span></span>"}</div>`).join("");
 }
 
-/* ---- ayarlar ---- */
+/* ---------- ayarlar ---------- */
 function renderSettings(){
   const c=S.cfg;
   const sl=(k,opts)=>`<select data-c="${k}">${opts.map(([v,l])=>`<option value="${v??""}" ${String(c[k]??"")===String(v??"")?"selected":""}>${esc(l)}</option>`).join("")}</select>`;
   const tg=(k,on)=>`<button class="tg ${on?"on":""}" data-tg="${k}" aria-label="${k}"><u></u></button>`;
+  const sr=(t,sm,ctl)=>`<div class="sr"><div>${t}${sm?`<small>${sm}</small>`:""}</div>${ctl}</div>`;
   $("setbox").innerHTML=`
-  <div class="sr"><div>Mikrofon<small>Değişince mikrofon otomatik yeniden başlar.</small></div>${sl("mic_device",S.mics.map(m=>[m.id,m.name]))}</div>
-  <div class="sr"><div>Uyandırma dinleyicisi<small>“Hey Tank” bazen tutmazsa diğerini dene (Kayıt sekmesinde ne duyduğunu görürsün).</small></div>${sl("wake_lang",[["tr","Türkçe model"],["en","İngilizce model"]])}</div>
-  <div class="sr"><div>Sıkı “Hey Tank” algılama<small>Açıkken “hey” ve “tank” birlikte duyulmalı. Kapalıysa tek başına “tank” de uyandırır.</small></div>${tg("strict_wake",c.strict_wake!==false)}</div>
-  <div class="sr"><div>Komut anlama<small>Doğru: Whisper turbo (en iyi Türkçe, komut sonrası ~2-5 sn bekleme). Hızlı: Whisper small. Hafif: sadece listendeki cümleler, en az RAM.</small></div>${sl("cmd_engine",[["turbo","Doğru — Whisper turbo"],["small","Hızlı — Whisper small"],["light","Hafif — Vosk"]])}</div>
-  <div class="sr"><div>Model bellekte kalma süresi<small>Komuttan sonra model bu kadar RAM'de bekler, sonra boşaltılır (RAM tasarrufu). Konuşurken arka planda yüklenir.</small></div>${sl("keep_warm",[[0,"Hemen bırak"],[30,"30 saniye"],[300,"5 dakika"],[-1,"Hep açık"]])}</div>
-  <div class="sr"><div>Eşleşme hassasiyeti: %<span id="mt">${c.match_threshold}</span><small>Düşük = daha toleranslı, yanlış tetikleme riski artar.</small></div><input type="range" min="60" max="100" value="${c.match_threshold}" data-r="match_threshold"></div>
-  <div class="sr"><div>En fazla dinleme süresi: <span id="ms">${c.max_record_sec}</span> sn</div><input type="range" min="3" max="12" value="${c.max_record_sec}" data-r="max_record_sec"></div>
-  <div class="sr"><div>Uyandırma hassasiyeti<small>Yanlışlıkla uyanıyorsa “Sıkı”, hiç uyanmıyorsa “Hassas” seç.</small></div>${sl("wake_sens",[["strict","Sıkı (en az yanlış uyanma)"],["normal","Dengeli"],["sensitive","Hassas (en hızlı)"]])}</div>
-  <div class="sr"><div>Kısayol: Ctrl+Alt+T<small>Uyandırma kelimesi olmadan dinlemeyi başlatır.</small></div>${tg("hotkey",c.hotkey!==false)}</div>
-  <div class="sr"><div>Bip sesi<small>Seçince çalar.</small></div><div style="display:flex;gap:8px">${sl("beep_sound",[["rising","Yükselen"],["classic","Klasik bip"],["double","Çift bip"],["bell","Çan"],["tick","Tık (çok kısa)"],["system","Windows sesi"],["none","Sessiz"]])}<button class="bt" data-test="beep">Dene</button></div></div>
-  <div class="sr"><div>Bip ses seviyesi: %<span id="bv">${c.beep_volume}</span></div><input type="range" min="0" max="100" value="${c.beep_volume}" data-r="beep_volume"></div>
-  <div class="sr"><div>Onay / hata sesi<small>Komut çalışınca kısa onay, anlaşılmayınca alçak ses.</small></div>${tg("feedback_sounds",c.feedback_sounds!==false)}</div>
-  <div class="sr"><div>Windows ile başlat<small>Açılışta pencere göstermeden tepsiye iner. Kapatınca kayıt tamamen silinir.</small></div>${tg("autostart",S.auto)}</div>`;
+  <div class="sh">GEMINI</div>
+  ${sr("API anahtarı",`Ücretsiz anahtar: aistudio.google.com/apikey. Bu bilgisayarda şifrelenerek saklanır; klasörü paylaşırken <b>config.json</b>'u verme.`,
+    `<div><div style="display:flex;gap:8px"><input id="key" type="password" placeholder="${S.hasKey?"•••••••• (kayıtlı)":"AIza..."}" style="width:200px"><button class="bt" id="keybtn">Kaydet ve dene</button></div><div class="res" id="keyres"></div></div>`)}
+  ${sr("Model",`Anahtarı denedikten sonra anahtarının erişebildiği Live modelleri listelenir.`,`<input id="model" list="models" value="${esc(c.live_model||"")}" style="width:260px"><datalist id="models">${S.models.map(m=>`<option value="${esc(m)}">`).join("")}</datalist>`)}
+  ${sr("Ses",null,sl("voice",S.voices.map(v=>[v,v])))}
+  ${sr("Sesli cevap","Kapalıysa Tank yalnızca yazar.",tg("speak",c.speak!==false))}
+  ${sr("Konuşma sonrası bekleme: <span id='ids'>"+c.idle_sec+"</span> sn","Bu süre konuşulmazsa oturum kapanır (kota harcamaz).",`<input type="range" min="5" max="30" value="${c.idle_sec}" data-r="idle_sec">`)}
+  ${sr("Kulaklık modu","Açıkken Tank konuşurken sen de araya girebilirsin. Hoparlör kullanıyorsan kapalı bırak (yankı).",tg("barge_in",!!c.barge_in))}
+  <div class="sh">UYANDIRMA</div>
+  ${sr("“Hey Tank” dinleme",null,tg("listening",c.listening!==false))}
+  ${sr("Dinleyici modeli","Tutmazsa diğerini dene. Kayıt sekmesinde ne duyduğu görünür.",sl("wake_lang",[["tr","Türkçe model"],["en","İngilizce model"]]))}
+  ${sr("Hassasiyet","Yanlışlıkla uyanıyorsa “Sıkı”, hiç uyanmıyorsa “Hassas”.",sl("wake_sens",[["strict","Sıkı"],["normal","Dengeli"],["sensitive","Hassas"]]))}
+  ${sr("Kısayol: Ctrl+Alt+T","Uyandırma kelimesi olmadan başlatır / kapatır.",tg("hotkey",c.hotkey!==false))}
+  <div class="sh">SES</div>
+  ${sr("Mikrofon",null,sl("mic_device",S.mics.map(m=>[m.id,m.name])))}
+  ${sr("Hoparlör",null,sl("out_device",S.outs.map(m=>[m.id,m.name])))}
+  ${sr("Başlangıç sesi",null,`<div style="display:flex;gap:8px">${sl("beep_sound",[["rising","Yükselen"],["classic","Klasik bip"],["double","Çift bip"],["bell","Çan"],["tick","Tık"],["system","Windows sesi"],["none","Sessiz"]])}<button class="bt" data-test="beep">Dene</button></div>`)}
+  ${sr("Ses seviyesi: %<span id='bv'>"+c.beep_volume+"</span>",null,`<input type="range" min="0" max="100" value="${c.beep_volume}" data-r="beep_volume">`)}
+  ${sr("Onay / hata sesi","Araç çalışınca kısa onay, olmayınca alçak ses.",tg("feedback_sounds",c.feedback_sounds!==false))}
+  <div class="sh">SİSTEM</div>
+  ${sr("Windows ile başlat","Açılışta pencere göstermeden tepsiye iner. Kapatınca kayıt silinir.",tg("autostart",S.auto))}`;
 }
+async function setCfg(k,v){S.cfg[k]=v;await api().set_config(k,v)}
 
-/* ---- olaylar ---- */
+/* ---------- olaylar ---------- */
 document.addEventListener("click",async e=>{
   const t=e.target.closest("button,.rw"); if(!t)return;
-  if(t.dataset.f){setView("commands",t.dataset.f);return}
   if(t.dataset.view){setView(t.dataset.view);return}
-  if(t.dataset.t){const c=S.cmds.find(x=>x.id===t.dataset.t);c.enabled=!c.enabled;await api().toggle_command(c.id,c.enabled);renderList();return}
-  if(t.dataset.r){api().test_command(t.dataset.r);return}
+  if(t.id==="quit"){if(confirm("Hey Tank tamamen kapatılsın mı?"))api().quit_app();return}
+  if(t.dataset.t){const c=S.shortcuts.find(x=>x.id===t.dataset.t);c.enabled=!c.enabled;await api().toggle_shortcut(c.id,c.enabled);renderShortcuts();return}
+  if(t.dataset.r){api().test_shortcut(t.dataset.r);return}
   if(t.dataset.e){openEdit(t.dataset.e);return}
-  if(t.dataset.d){const c=S.cmds.find(x=>x.id===t.dataset.d);if(confirm(`“${c.name}” silinsin mi?`)){S.cmds=await api().delete_command(c.id);setView("commands")}return}
+  if(t.dataset.d){const c=S.shortcuts.find(x=>x.id===t.dataset.d);if(confirm(`“${c.name}” silinsin mi?`)){S.shortcuts=await api().delete_shortcut(c.id);renderShortcuts()}return}
+  if(t.dataset.tool){const x=S.tools.find(y=>y.name===t.dataset.tool);S.tools=await api().set_tool(x.name,!x.enabled);renderTools();return}
   if(t.dataset.test==="beep"){api().test_beep(S.cfg.beep_sound,S.cfg.beep_volume);return}
-  if(t.dataset.tg==="hotkey"||t.dataset.tg==="feedback_sounds"){const k=t.dataset.tg;S.cfg[k]=!(S.cfg[k]!==false);await api().set_config(k,S.cfg[k]);renderSettings();return}
-  if(t.dataset.tg==="strict_wake"){S.cfg.strict_wake=!(S.cfg.strict_wake!==false);await api().set_config("strict_wake",S.cfg.strict_wake);renderSettings();return}
-  if(t.dataset.tg==="autostart"){S.auto=await api().set_autostart(!S.auto);renderSettings();return}
-  if(t.classList.contains("rw")&&t.dataset.id){sel=t.dataset.id;renderList()}
+  if(t.id==="keybtn"){
+    const v=$("key").value.trim(); $("keyres").textContent="Deneniyor...";
+    if(v){S.hasKey=await api().set_key(v);}
+    const r=await api().check_key("");
+    if(r.ok){S.models=r.models;$("keyres").textContent=r.models.length?`Anahtar geçerli. ${r.models.length} Live modeli bulundu.`:"Anahtar geçerli ama Live modeli listelenmedi; model adını elle yaz.";
+      const d=$("models");d.innerHTML=r.models.map(m=>`<option value="${esc(m)}">`).join("");
+      if(r.models.length&&!r.models.includes(S.cfg.live_model)){const pick=r.models.find(m=>/live/.test(m))||r.models[0];$("model").value=pick;await setCfg("live_model",pick);}
+      $("key").value="";$("key").placeholder="•••••••• (kayıtlı)";}
+    else $("keyres").textContent="Hata: "+r.error;
+    return}
+  if(t.dataset.tg){const k=t.dataset.tg;
+    if(k==="autostart"){S.auto=await api().set_autostart(!S.auto);renderSettings();return}
+    const nv=!(k==="barge_in"?!!S.cfg[k]:S.cfg[k]!==false); await setCfg(k,nv); renderSettings(); if(k==="listening")syncListen(); return}
+  if(t.classList.contains("rw")&&t.dataset.id){sel=t.dataset.id;renderShortcuts()}
 });
 document.addEventListener("change",async e=>{
-  if(e.target.dataset.r==="beep_volume"){api().test_beep(S.cfg.beep_sound,S.cfg.beep_volume);return}
-  const k=e.target.dataset.c; if(!k)return;
-  S.cfg[k]=e.target.value; await api().set_config(k,e.target.value);
-  if(k==="beep_sound")api().test_beep(e.target.value,S.cfg.beep_volume);
+  const el=e.target;
+  if(el.dataset.r==="beep_volume"){api().test_beep(S.cfg.beep_sound,S.cfg.beep_volume);return}
+  if(el.id==="model"){await setCfg("live_model",el.value.trim());return}
+  const k=el.dataset.c; if(!k)return;
+  await setCfg(k,el.value); if(k==="beep_sound")api().test_beep(el.value,S.cfg.beep_volume);
 });
 document.addEventListener("input",async e=>{
-  const k=e.target.dataset.r;
-  if(k&&e.target.type==="range"){const v=+e.target.value;S.cfg[k]=v;$(({match_threshold:"mt",max_record_sec:"ms",beep_volume:"bv"})[k]).textContent=v;await api().set_config(k,v)}
-  if(e.target.id==="q")renderList();
+  const k=e.target.dataset.r; if(!k||e.target.type!=="range")return;
+  const v=+e.target.value; $(k==="idle_sec"?"ids":"bv").textContent=v; await setCfg(k,v);
 });
 $("new").onclick=()=>openEdit("");
-$("quit").onclick=()=>{if(confirm("Hey Tank tamamen kapatılsın mı?"))api().quit_app()};
-$("addph").onclick=()=>{if(lastMiss)openAddPhrase(lastMiss)};
-$("listen").onclick=async()=>{S.cfg.listening=!S.cfg.listening;await api().set_config("listening",S.cfg.listening)};
-$("tryb").onclick=()=>{const v=$("try").value.trim();if(v){api().try_text(v);$("try").value=""}};
-$("try").onkeydown=e=>{if(e.key==="Enter")$("tryb").click()};
 $("ov").onclick=e=>{if(e.target===$("ov"))$("ov").classList.remove("on")};
+$("listen").onclick=async()=>{await setCfg("listening",!(S.cfg.listening!==false));syncListen()};
+function syncListen(){$("listen").classList.toggle("on",S.cfg.listening!==false)}
+$("c-yes").onclick=()=>{api().confirm_answer(confirmId,true);$("cov").classList.remove("on")};
+$("c-no").onclick=()=>{api().confirm_answer(confirmId,false);$("cov").classList.remove("on")};
 
-/* ---- durum dongusu ---- */
-const DOT={wait:"#4ADE80",listen:"#EDEDED",think:"#EDEDED",pause:"#6A6A6A",loading:"#8A8A8A",error:"#FF9A9A"};
+/* ---------- durum dongusu ---------- */
 async function tick(){
   try{
-    const s=await api().poll(seq);
-    seq=s.seq;
+    const s=await api().poll(seq); seq=s.seq; pol=s;
     const stale=s.stale;
     $("status").textContent=stale?"Motor yanıt vermiyor":s.status;
-    $("dot").style.background=stale?DOT.error:(DOT[s.state]||DOT.pause);
-    $("listen").classList.toggle("on",S.cfg.listening!==false);
-    const l=s.last;
-    $("last").innerHTML=!l?"Henüz komut yok":l.cmd?`Son komut <code>“${esc(l.text)}”</code> → ${esc(l.cmd)} · ${l.time}`:`Duyulan <code>“${esc(l.text)}”</code> · eşleşen komut yok`;
-    const miss=!!(l&&!l.cmd);lastMiss=miss?l.text:null;$("addph").style.display=miss?"":"none";
-    const on=s.state==="wait"||s.state==="listen";
-    bars.forEach((b,i)=>{const h=on?3+Math.round(s.level*17*(.45+.55*Math.abs(Math.sin(Date.now()/160+i*1.7)))):4;b.style.height=h+"px";b.classList.toggle("a",h>6)});
+    $("dot").style.background=stale?COL.error:(COL[s.state]||COL.wait);
+    if(S.hasKey!==s.has_key){S.hasKey=s.has_key;$("banner").style.display=(!S.hasKey&&view==="home")?"flex":"none"}
+    renderChat(s.chat||[]);
     $("heard").textContent=s.heard?`Uyandırma dinleyicisi son duyduğu: “${s.heard}”`:"";
     if(s.logs.length){const p=$("logbox");const nb=p.scrollTop+p.clientHeight>=p.scrollHeight-8;p.textContent+=s.logs.join("\n")+"\n";if(nb)p.scrollTop=p.scrollHeight}
+    if(s.confirm&&s.confirm.id!==confirmId){confirmId=s.confirm.id;$("c-title").textContent=s.confirm.title;$("c-detail").textContent=s.confirm.detail;$("cov").classList.add("on")}
+    if(!s.confirm&&confirmId){confirmId=null;$("cov").classList.remove("on")}
   }catch(e){}
   setTimeout(tick,120);
 }
 
 window.addEventListener("pywebviewready",async()=>{
-  for(let i=0;i<12;i++){const b=document.createElement("b");$("meter").appendChild(b);bars.push(b)}
   const d=await api().init();
-  S={cmds:d.commands,cfg:d.config,mics:d.mics,sys:d.system_actions,auto:d.autostart};
-  setView("commands","all"); tick();
+  S={shortcuts:d.shortcuts,cfg:d.config,mics:d.mics,outs:d.outs,voices:d.voices,tools:d.tools,auto:d.autostart,hasKey:d.has_key,models:[]};
+  $("ver").textContent=d.version; $("n-sc").textContent=S.shortcuts.length; syncListen();
+  setView("home"); requestAnimationFrame(loop); tick();
 });
 </script>
 </body>
