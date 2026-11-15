@@ -84,7 +84,7 @@ pre{margin:0;flex:1;overflow:auto;background:var(--panel);border:1px solid var(-
 .steps{display:flex;gap:6px}.steps i{height:3px;flex:1;background:var(--off);border-radius:2px}.steps i.a{background:var(--ok)}
 .pick{display:flex;gap:10px}.card{flex:1;border:1px solid var(--line2);background:var(--panel);border-radius:8px;padding:14px;text-align:left;color:var(--txt)}
 .card.a{border-color:var(--ok)}.card b{display:block;margin-bottom:4px;font-weight:500}.card span{color:var(--mut);font-size:12px}
-.wz .res{min-height:18px}.wz label.ck{display:flex;gap:8px;align-items:flex-start;color:var(--sec);font-size:12px}
+.wz .res{min-height:18px;white-space:pre-wrap;user-select:text}.wz label.ck{display:flex;gap:8px;align-items:flex-start;color:var(--sec);font-size:12px}
 ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--knob);border-radius:4px}
 </style>
 </head>
@@ -286,7 +286,7 @@ document.addEventListener("click",async e=>{
     if(r.ok){$("keyres").textContent="Bağlandı ✓ Model: "+r.model; S.cfg.live_model=r.model; $("model").value=r.model;
       const m=await api().check_key(""); if(m.ok){S.models=m.models;$("models").innerHTML=m.models.map(x=>`<option value="${esc(x)}">`).join("")}
       $("key").value="";$("key").placeholder="•••••••• (kayıtlı)"}
-    else $("keyres").textContent="Hata: "+r.error;
+    else $("keyres").textContent="Hata: "+hintFor(r.error)+" ("+String(r.error||"").slice(0,300)+")";
     return}
   if(t.dataset.tg){const k=t.dataset.tg;
     if(k==="autostart"){S.auto=await api().set_autostart(!S.auto);renderSettings();return}
@@ -311,9 +311,19 @@ function syncListen(){$("listen").classList.toggle("on",S.cfg.listening!==false)
 $("c-yes").onclick=()=>{api().confirm_answer(confirmId,true);$("cov").classList.remove("on")};
 $("c-no").onclick=()=>{api().confirm_answer(confirmId,false);$("cov").classList.remove("on")};
 
+function hintFor(err){
+  const e=String(err||"");
+  if(/API key not valid|API_KEY_INVALID|invalid api key/i.test(e))return "Anahtar geçersiz görünüyor: baştan kopyalayıp tekrar yapıştır (başında/sonunda boşluk olmasın).";
+  if(/location is not supported|FAILED_PRECONDITION/i.test(e))return "Google, bulunduğun bölgede bu servisi (ücretsiz katman / Live) desteklemiyor olabilir.";
+  if(/429|quota|RESOURCE_EXHAUSTED/i.test(e))return "Kota dolmuş görünüyor; biraz bekleyip tekrar dene.";
+  if(/403|PERMISSION_DENIED/i.test(e))return "İzin reddedildi: bu anahtar Gemini API'ye erişemiyor olabilir (AI Studio'da anahtarın projesini kontrol et).";
+  if(/404/.test(e))return "Sunucu bağlantıyı reddetti (HTTP 404): model veya API sürümü bulunamadı. Aşağıdaki satırları bana gönder.";
+  return "Aşağıdaki satırları bana gönderirsen sebebini bulurum.";
+}
+function logTail(n){const t=($("logbox")||{textContent:""}).textContent.trim().split("\n");return t.slice(-n).join("\n")}
 /* ---------- ilk kurulum sihirbazi ---------- */
-let wz={step:0,portable:false,wake:"vosk",ok:false,msg:""};
-function showWiz(step){wz.step=step||0;wz.ok=false;wz.msg="";$("wiz").classList.add("on");renderWiz()}
+let wz={step:0,portable:false,wake:"vosk",ok:false,msg:"",log:""};
+function showWiz(step){wz.step=step||0;wz.ok=false;wz.msg="";wz.log="";$("wiz").classList.add("on");renderWiz()}
 async function closeWiz(){await setCfg("onboarded",true);$("wiz").classList.remove("on");setView("home")}
 function renderWiz(){
   const st=wz.step, dots=[0,1,2,3].map(i=>`<i class="${i<=st?"a":""}"></i>`).join(""); let b="";
@@ -332,7 +342,9 @@ function renderWiz(){
    <input id="w-key" type="password" placeholder="AIza..." style="width:100%">
    <label class="ck"><input type="checkbox" id="w-port" style="height:auto" ${wz.portable?"checked":""}> Bu klasörü başka bilgisayarlara da taşıyacağım (anahtar şifrelenmeden saklanır)</label>
    <div><button class="bt" id="w-test">Kaydet ve bağlantıyı dene</button></div><div class="res" id="w-res">${esc(wz.msg)}</div>
-   <div class="row" style="justify-content:space-between"><button class="bt" id="w-back">Geri</button><button class="pri" id="w-next" ${wz.ok?"":"disabled style='opacity:.4'"}>Devam</button></div>`;
+   ${wz.log?`<pre style="flex:none;max-height:150px;font-size:11px;white-space:pre-wrap;user-select:text">${esc(wz.log)}</pre>`:""}
+   <div class="row" style="justify-content:space-between"><button class="bt" id="w-back">Geri</button>
+   <span style="display:flex;gap:8px">${wz.ok?"":'<button class="bt" id="w-force">Yine de devam et</button>'}<button class="pri" id="w-next" ${wz.ok?"":"disabled style='opacity:.4'"}>Devam</button></span></div>`;
   if(st===3)b=`<h1>Nasıl uyansın?</h1>
    <div class="pick"><button class="card ${wz.wake==="vosk"?"a":""}" data-wk="vosk"><b>“Hey Tank” de (önerilen)</b><span>Küçük çevrimdışı model sürekli dinler, ses internete gitmez. Uyandırınca Gemini konuşmaya başlar.</span></button>
    <button class="card ${wz.wake==="off"?"a":""}" data-wk="off"><b>Sadece dokun</b><span>Daireye dokun veya Ctrl+Alt+T. Hiç yanlış uyanma, daha az bellek.</span></button></div>
@@ -340,7 +352,7 @@ function renderWiz(){
    <div class="row" style="justify-content:space-between"><button class="bt" id="w-back">Geri</button><button class="pri" id="w-next">Bitir</button></div>`;
   $("wzbody").innerHTML=`<div class="steps">${dots}</div>`+b;
   const on=(id,fn)=>{const e=$(id);if(e)e.onclick=fn};
-  on("w-skip",closeWiz); on("w-back",()=>{wz.step--;renderWiz()});
+  on("w-skip",closeWiz); on("w-force",()=>{wz.step++;renderWiz()}); on("w-back",()=>{wz.step--;renderWiz()});
   on("w-open",()=>api().open_external("https://aistudio.google.com/api-keys"));
   on("w-next",async()=>{ if(st===3){await setCfg("wake_mode",wz.wake);await setCfg("listening",wz.wake==="vosk");syncListen();await closeWiz();return} if(st===2&&!wz.ok)return; wz.step++;renderWiz()});
   on("w-test",async()=>{
@@ -350,7 +362,7 @@ function renderWiz(){
     if(!S.hasKey){$("w-res").textContent="Önce anahtarı yapıştır.";return}
     const r=await api().test_live();
     if(r.ok){wz.ok=true;wz.msg="Bağlandı ✓ Model: "+r.model;S.cfg.live_model=r.model;$("w-key").value=""}
-    else{wz.ok=false;wz.msg="Bağlanamadı: "+r.error+" — anahtarı kontrol et; sorun sürerse Kayıt sekmesine bak."}
+    else{wz.ok=false;wz.msg="Bağlanamadı. "+hintFor(r.error)+"\n\n"+String(r.error||"").slice(0,500);setTimeout(()=>{wz.log=logTail(8);renderWiz()},400)}
     renderWiz()});
   document.querySelectorAll("[data-wk]").forEach(e=>e.onclick=()=>{wz.wake=e.dataset.wk;renderWiz()});
 }

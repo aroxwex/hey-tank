@@ -55,6 +55,7 @@ VOICES = ["Charon", "Puck", "Kore", "Fenrir", "Aoede", "Zephyr", "Orus", "Leda"]
 DEFAULT_CONFIG = {
     "cfg_ver": 3,
     "api_key_enc": "",
+    "api_version": "",            # bos = SDK varsayilani; baglanti sirasinda calisan surum kaydedilir
     "live_model": "",            # bos = anahtarinin erisebildigi en iyi Live modeli otomatik secilir
     "onboarded": False,          # ilk kurulum ekrani tamamlandi mi
     "wake_mode": "vosk",         # vosk = "Hey Tank" cevrimdisi dinler | off = sadece daire / Ctrl+Alt+T
@@ -356,8 +357,8 @@ def _dpapi(data: bytes, decrypt: bool = False) -> bytes:
         ctypes.windll.kernel32.LocalFree(outb.pbData)
 
 
-def _short(e) -> str:
-    return (str(e) or repr(e))[:220]
+def _short(e, n=220) -> str:
+    return (str(e) or repr(e))[:n]
 
 
 # ----------------------------------------------------------------------------
@@ -728,7 +729,7 @@ def rank_live_models(names):
         elif "live" in l:
             r = 3
         else:
-            continue
+            r = 5          # bidiGenerateContent destekliyor ama adi bilinmiyor: en sona koy
         groups.setdefault(r, []).append(n)
     out = []
     for r in sorted(groups):
@@ -745,7 +746,15 @@ def list_live_models(key):
         allm.append(n)
         if "bidiGenerateContent" in (getattr(m, "supported_actions", None) or []):
             live.append(n)
-    return live or [n for n in allm if "live" in n.lower() or "native-audio" in n.lower()]
+    if not live:
+        live = [n for n in allm if "live" in n.lower() or "native-audio" in n.lower()]
+    return {"live": live, "all": allm}
+
+
+LIVE_FALLBACK_MODELS = ["gemini-3.8-live", "gemini-3.1-flash-live-preview",
+                        "gemini-2.5-flash-native-audio-preview-12-2025",
+                        "gemini-2.5-flash-native-audio-preview-09-2025",
+                        "gemini-live-2.5-flash-preview", "gemini-2.0-flash-live-001"]
 
 
 # ----------------------------------------------------------------------------
@@ -1141,46 +1150,80 @@ class Live:
         await self.connect_loop(key, aq, thr, probe=False)
 
     async def connect_loop(self, key, aq, thr, probe=False):
-        """Modeli dener; 404/desteklenmiyor ise anahtarin erisebildigi diger Live modellerine gecer."""
+        """Model ve API surumu birlestirmelerini dener (404/desteklenmiyor -> siradaki); calisani kaydeder."""
         from google import genai
         from google.genai import types
         core, cfg = self.core, self.core.cfg
-        client = genai.Client(api_key=key)
+        clients = {}
+
+        def client_for(ver):
+            if ver not in clients:
+                clients[ver] = (genai.Client(api_key=key) if not ver else
+                                genai.Client(api_key=key, http_options=types.HttpOptions(api_version=ver)))
+            return clients[ver]
+
         config = self._config()
+        versions = []
+        for v in ((cfg.get("api_version") or ""), "", "v1beta", "v1alpha"):
+            if v not in versions:
+                versions.append(v)
         first = (cfg.get("live_model") or "").strip()
-        todo, tried, err, listed = ([first] if first else []), [], None, False
-        while True:
+        todo, tried, errors, listed = ([first] if first else []), [], [], False
+        good_ver, hs404 = None, 0
+        while len(tried) < 8:
             if not todo:
                 if listed:
                     break
                 listed = True
                 core.set_state("connecting", "Model aranıyor...")
-                names = await asyncio.to_thread(list_live_models, key)
-                todo = [m for m in rank_live_models(names) if m not in tried]
-                core.log("Kullanılabilir Live modelleri: " + (", ".join(todo[:5]) or "yok"))
+                try:
+                    info = await asyncio.to_thread(list_live_models, key)
+                except Exception as e:
+                    info = {"live": [], "all": []}
+                    errors.append("model listesi alınamadı: " + _short(e, 200))
+                    core.log(errors[-1])
+                core.log(f"Model listesi: {len(info['all'])} model; Live olanlar: "
+                         + (", ".join(info["live"][:6]) or "yok"))
+                cand = rank_live_models(info["live"]) + LIVE_FALLBACK_MODELS
+                todo = [m for i, m in enumerate(cand) if m not in tried and m not in cand[:i]]
                 if not todo:
                     break
             model = todo.pop(0)
+            if model in tried:
+                continue
             tried.append(model)
-            self._connected = False
-            t0 = time.time()
-            try:
-                await self._session(client, model, config, aq, thr, types, probe)
-                if cfg.get("live_model") != model:
-                    cfg["live_model"] = model
-                    core.save_cfg()
-                    core.log(f"Model seçildi: {model}")
-                return model
-            except Exception as e:
-                msg = str(e).lower()
-                modelish = any(x in msg for x in ("404", "not found", "not supported", "unsupported", "1008"))
-                early = (not self._connected) or (time.time() - t0 < 4)
-                if modelish and early and len(tried) < 5:
-                    core.log(f"Model kullanılamadı ({model}): {_short(e)}")
-                    err = e
-                    continue
-                raise
-        raise err or RuntimeError("Anahtarın erişebildiği bir Live modeli bulunamadı.")
+            all404 = True
+            for ver in ([good_ver] if good_ver is not None else versions):
+                self._connected = False
+                t0 = time.time()
+                try:
+                    await self._session(client_for(ver), model, config, aq, thr, types, probe)
+                    if cfg.get("live_model") != model or (cfg.get("api_version") or "") != ver:
+                        cfg["live_model"], cfg["api_version"] = model, ver
+                        core.save_cfg()
+                        core.log(f"Bağlantı ayarı kaydedildi: model={model}, sürüm={ver or 'varsayılan'}")
+                    return model
+                except Exception as e:
+                    low = str(e).lower()
+                    if self._connected and time.time() - t0 > 4:
+                        raise                                  # oturum calisirken kopma: yeniden deneme yok
+                    errors.append(f"{model} [{ver or 'varsayılan'}]: {_short(e, 150)}")
+                    core.log("Bağlanamadı: " + errors[-1])
+                    if self._connected:
+                        good_ver = ver                         # el sikisma tamam, sorun modelde
+                    handshake404 = (not self._connected) and "404" in low
+                    modelish = any(x in low for x in ("not found", "not supported", "unsupported", "1008"))
+                    if handshake404:
+                        continue                               # siradaki API surumu
+                    all404 = False
+                    if modelish:
+                        break                                  # siradaki model
+                    raise RuntimeError(_short(e, 400))         # anahtar/kota/bolge gibi gercek hata
+            if all404:
+                hs404 += 1
+                if hs404 >= 2:
+                    break                                      # model degistirmek yardim etmiyor
+        raise RuntimeError("Live bağlantısı kurulamadı. " + " | ".join(errors[-4:]))
 
     async def _session(self, client, model, config, aq, thr, types, probe):
         core = self.core
@@ -1418,16 +1461,17 @@ class Api:
             c.set_state("wait", "“Hey Tank” bekleniyor")
             return {"ok": True, "model": model}
         except Exception as e:
-            return {"ok": False, "error": _short(e)}
+            return {"ok": False, "error": _short(e, 600)}
 
     def check_key(self, key=""):
         key = (key or "").strip() or self._core.get_key()
         if not key:
             return {"ok": False, "error": "Anahtar boş."}
         try:
-            return {"ok": True, "models": rank_live_models(list_live_models(key))}
+            info = list_live_models(key)
+            return {"ok": True, "models": rank_live_models(info["live"]), "count": len(info["all"])}
         except Exception as e:
-            return {"ok": False, "error": _short(e)}
+            return {"ok": False, "error": _short(e, 600)}
 
     # --- kisayollar
     def save_shortcut(self, sc):
