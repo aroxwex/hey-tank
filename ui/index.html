@@ -75,13 +75,23 @@ pre{margin:0;flex:1;overflow:auto;background:var(--panel);border:1px solid var(-
 .dlg label{display:flex;flex-direction:column;gap:5px;color:var(--sec);font-size:12px}
 .dlg h3{margin:0 0 4px;font-size:14px}
 .row{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+#wiz{position:fixed;inset:0;background:var(--bg);z-index:9;display:none;align-items:center;justify-content:center;overflow:auto}
+#wiz.on{display:flex}
+.wz{width:540px;max-width:92vw;display:flex;flex-direction:column;gap:16px;padding:24px 0}
+.wz h1{margin:0;font-size:22px;font-weight:600}
+.wz p,.wz li{color:var(--sec);font-size:13.5px;line-height:1.6;margin:0}
+.wz ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.steps{display:flex;gap:6px}.steps i{height:3px;flex:1;background:var(--off);border-radius:2px}.steps i.a{background:var(--ok)}
+.pick{display:flex;gap:10px}.card{flex:1;border:1px solid var(--line2);background:var(--panel);border-radius:8px;padding:14px;text-align:left;color:var(--txt)}
+.card.a{border-color:var(--ok)}.card b{display:block;margin-bottom:4px;font-weight:500}.card span{color:var(--mut);font-size:12px}
+.wz .res{min-height:18px}.wz label.ck{display:flex;gap:8px;align-items:flex-start;color:var(--sec);font-size:12px}
 ::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--knob);border-radius:4px}
 </style>
 </head>
 <body>
 <div id="app">
 <aside>
- <div class="brand"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x=".5" y=".5" width="23" height="23" rx="5.5" fill="#171717" stroke="#3A3A3A"/><rect x="5.6" y="5.8" width="12.8" height="3.3" rx=".8" fill="#EDEDED"/><rect x="10.2" y="5.8" width="3.4" height="12.6" rx=".8" fill="#EDEDED"/><circle cx="17.4" cy="17.2" r="1.8" fill="#4ADE80"/></svg>Tank</div>
+ <div class="brand"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><rect x=".5" y=".5" width="23" height="23" rx="5.5" fill="#171717" stroke="#3A3A3A"/><rect x="5.6" y="5.8" width="12.8" height="3.3" rx=".8" fill="#EDEDED"/><rect x="10.2" y="5.8" width="3.4" height="12.6" rx=".8" fill="#EDEDED"/><circle cx="17.4" cy="17.2" r="1.8" fill="#4ADE80"/></svg>Hey Tank</div>
  <button class="nv a" data-view="home"><span>Ana sayfa</span></button>
  <button class="nv" data-view="shortcuts"><span>Kısayollar</span><i id="n-sc">0</i></button>
  <button class="nv" data-view="tools"><span>Araçlar</span></button>
@@ -94,7 +104,7 @@ pre{margin:0;flex:1;overflow:auto;background:var(--panel);border:1px solid var(-
 <main>
  <section class="view on" id="v-home">
   <div class="home">
-   <div id="banner" class="banner" style="display:none">Gemini API anahtarı gerekli, yoksa Tank konuşamaz. <button class="bt" data-view="settings">Ayarlar</button></div>
+   <div id="banner" class="banner" style="display:none">Gemini API anahtarı gerekli, yoksa Tank konuşamaz. <button class="bt" data-wiz="1">Kurulumu aç</button></div>
    <canvas id="orb" width="440" height="440" aria-label="Konuşmak için dokun"></canvas>
    <div class="status"><span class="dot" id="dot"></span><span id="status">Başlatılıyor...</span></div>
    <div class="chat" id="chat"></div>
@@ -125,6 +135,7 @@ pre{margin:0;flex:1;overflow:auto;background:var(--panel);border:1px solid var(-
 </div>
 
 <div class="ov" id="ov"><div class="dlg" id="dlg"></div></div>
+<div id="wiz"><div class="wz" id="wzbody"></div></div>
 <div class="ov" id="cov"><div class="dlg"><h3 id="c-title"></h3><div class="mono" id="c-detail" style="white-space:pre-wrap;user-select:text"></div>
  <div class="row"><button class="bt" id="c-no">Hayır</button><button class="pri" id="c-yes">Evet, çalıştır</button></div></div></div>
 
@@ -162,8 +173,8 @@ function draw(now){
     const rr=100+amp*n*(.4+lvl*1.4)+(m==="wait"?Math.sin(T*1.2)*2:0), x=Math.cos(a)*rr, y=Math.sin(a)*rr; i?cx.lineTo(x,y):cx.moveTo(x,y);}
   cx.closePath(); cx.shadowColor=col; cx.shadowBlur=10+lvl*14; cx.strokeStyle=col; cx.lineWidth=2; cx.stroke(); cx.shadowBlur=0;
   cx.strokeStyle="#3A3A3A"; cx.lineWidth=1; cx.beginPath(); cx.arc(0,0,66,0,6.3); cx.stroke();
-  cx.fillStyle="#8A8A8A"; cx.font="600 15px 'Segoe UI Variable Text','Segoe UI',sans-serif"; cx.textAlign="center"; cx.textBaseline="middle";
-  try{cx.letterSpacing="6px"}catch(e){} cx.fillText("TANK",3,1); cx.restore();
+  cx.fillStyle="#8A8A8A"; cx.font="600 13px 'Segoe UI Variable Text','Segoe UI',sans-serif"; cx.textAlign="center"; cx.textBaseline="middle";
+  try{cx.letterSpacing="3px"}catch(e){} cx.fillText("HEY TANK",1.5,1); cx.restore();
 }
 function loop(now){ if(view==="home"&&!document.hidden)draw(now); else lastT=now; requestAnimationFrame(loop); }
 $("orb").onclick=()=>api().talk();
@@ -229,14 +240,17 @@ function renderSettings(){
   const sr=(t,sm,ctl)=>`<div class="sr"><div>${t}${sm?`<small>${sm}</small>`:""}</div>${ctl}</div>`;
   $("setbox").innerHTML=`
   <div class="sh">GEMINI</div>
-  ${sr("API anahtarı",`Ücretsiz anahtar: aistudio.google.com/apikey. Bu bilgisayarda şifrelenerek saklanır; klasörü paylaşırken <b>config.json</b>'u verme.`,
-    `<div><div style="display:flex;gap:8px"><input id="key" type="password" placeholder="${S.hasKey?"•••••••• (kayıtlı)":"AIza..."}" style="width:200px"><button class="bt" id="keybtn">Kaydet ve dene</button></div><div class="res" id="keyres"></div></div>`)}
-  ${sr("Model",`Anahtarı denedikten sonra anahtarının erişebildiği Live modelleri listelenir.`,`<input id="model" list="models" value="${esc(c.live_model||"")}" style="width:260px"><datalist id="models">${S.models.map(m=>`<option value="${esc(m)}">`).join("")}</datalist>`)}
+  ${sr("Kurulum sihirbazı","Anahtar alma adımlarını ve bağlantı testini yeniden gösterir.",`<button class="bt" data-wiz="0">Sihirbazı aç</button>`)}
+  ${sr("API anahtarı",`Ücretsiz anahtar al: aşağıdaki düğme Google AI Studio'yu açar. Bu bilgisayarda şifrelenerek saklanır (taşınabilir seçeneği hariç); klasörü paylaşırken <b>config.json</b>'u verme.`,
+    `<div><div style="display:flex;gap:8px"><input id="key" type="password" placeholder="${S.hasKey?"•••••••• (kayıtlı)":"AIza..."}" style="width:170px"><button class="bt" id="keybtn">Kaydet ve dene</button><button class="bt" data-ext="1">Anahtar al</button></div>
+    <label class="ck" style="display:flex;gap:6px;margin-top:6px;font-size:12px;color:var(--sec)"><input type="checkbox" id="portable" style="height:auto"> Klasörü başka bilgisayara taşıyacağım (şifresiz sakla)</label><div class="res" id="keyres"></div></div>`)}
+  ${sr("Model",`Boş bırak = anahtarının erişebildiği en iyi Live modeli otomatik seçilir (önerilen).`,`<input id="model" list="models" placeholder="otomatik" value="${esc(c.live_model||"")}" style="width:260px"><datalist id="models">${S.models.map(m=>`<option value="${esc(m)}">`).join("")}</datalist>`)}
   ${sr("Ses",null,sl("voice",S.voices.map(v=>[v,v])))}
   ${sr("Sesli cevap","Kapalıysa Tank yalnızca yazar.",tg("speak",c.speak!==false))}
   ${sr("Konuşma sonrası bekleme: <span id='ids'>"+c.idle_sec+"</span> sn","Bu süre konuşulmazsa oturum kapanır (kota harcamaz).",`<input type="range" min="5" max="30" value="${c.idle_sec}" data-r="idle_sec">`)}
   ${sr("Kulaklık modu","Açıkken Tank konuşurken sen de araya girebilirsin. Hoparlör kullanıyorsan kapalı bırak (yankı).",tg("barge_in",!!c.barge_in))}
   <div class="sh">UYANDIRMA</div>
+  ${sr("Uyandırma kelimesi","Kapalıyken küçük çevrimdışı model hiç yüklenmez; daireye dokunur veya Ctrl+Alt+T'ye basarsın.",sl("wake_mode",[["vosk","“Hey Tank” (çevrimdışı dinler)"],["off","Kapalı (daire / kısayol)"]]))}
   ${sr("“Hey Tank” dinleme",null,tg("listening",c.listening!==false))}
   ${sr("Dinleyici modeli","Tutmazsa diğerini dene. Kayıt sekmesinde ne duyduğu görünür.",sl("wake_lang",[["tr","Türkçe model"],["en","İngilizce model"]]))}
   ${sr("Hassasiyet","Yanlışlıkla uyanıyorsa “Sıkı”, hiç uyanmıyorsa “Hassas”.",sl("wake_sens",[["strict","Sıkı"],["normal","Dengeli"],["sensitive","Hassas"]]))}
@@ -263,14 +277,15 @@ document.addEventListener("click",async e=>{
   if(t.dataset.d){const c=S.shortcuts.find(x=>x.id===t.dataset.d);if(confirm(`“${c.name}” silinsin mi?`)){S.shortcuts=await api().delete_shortcut(c.id);renderShortcuts()}return}
   if(t.dataset.tool){const x=S.tools.find(y=>y.name===t.dataset.tool);S.tools=await api().set_tool(x.name,!x.enabled);renderTools();return}
   if(t.dataset.test==="beep"){api().test_beep(S.cfg.beep_sound,S.cfg.beep_volume);return}
+  if(t.dataset.wiz){showWiz(+t.dataset.wiz);return}
+  if(t.dataset.ext){api().open_external("https://aistudio.google.com/api-keys");return}
   if(t.id==="keybtn"){
-    const v=$("key").value.trim(); $("keyres").textContent="Deneniyor...";
-    if(v){S.hasKey=await api().set_key(v);}
-    const r=await api().check_key("");
-    if(r.ok){S.models=r.models;$("keyres").textContent=r.models.length?`Anahtar geçerli. ${r.models.length} Live modeli bulundu.`:"Anahtar geçerli ama Live modeli listelenmedi; model adını elle yaz.";
-      const d=$("models");d.innerHTML=r.models.map(m=>`<option value="${esc(m)}">`).join("");
-      if(r.models.length&&!r.models.includes(S.cfg.live_model)){const pick=r.models.find(m=>/live/.test(m))||r.models[0];$("model").value=pick;await setCfg("live_model",pick);}
-      $("key").value="";$("key").placeholder="•••••••• (kayıtlı)";}
+    const v=$("key").value.trim(); $("keyres").textContent="Kaydediliyor ve bağlanılıyor...";
+    if(v){S.hasKey=await api().set_key(v,$("portable").checked);}
+    const r=await api().test_live();
+    if(r.ok){$("keyres").textContent="Bağlandı ✓ Model: "+r.model; S.cfg.live_model=r.model; $("model").value=r.model;
+      const m=await api().check_key(""); if(m.ok){S.models=m.models;$("models").innerHTML=m.models.map(x=>`<option value="${esc(x)}">`).join("")}
+      $("key").value="";$("key").placeholder="•••••••• (kayıtlı)"}
     else $("keyres").textContent="Hata: "+r.error;
     return}
   if(t.dataset.tg){const k=t.dataset.tg;
@@ -296,6 +311,50 @@ function syncListen(){$("listen").classList.toggle("on",S.cfg.listening!==false)
 $("c-yes").onclick=()=>{api().confirm_answer(confirmId,true);$("cov").classList.remove("on")};
 $("c-no").onclick=()=>{api().confirm_answer(confirmId,false);$("cov").classList.remove("on")};
 
+/* ---------- ilk kurulum sihirbazi ---------- */
+let wz={step:0,portable:false,wake:"vosk",ok:false,msg:""};
+function showWiz(step){wz.step=step||0;wz.ok=false;wz.msg="";$("wiz").classList.add("on");renderWiz()}
+async function closeWiz(){await setCfg("onboarded",true);$("wiz").classList.remove("on");setView("home")}
+function renderWiz(){
+  const st=wz.step, dots=[0,1,2,3].map(i=>`<i class="${i<=st?"a":""}"></i>`).join(""); let b="";
+  if(st===0)b=`<h1>Tank'a hoş geldin</h1>
+   <p>Bilgisayarını sesle yöneten asistan. Google Gemini ile çalışır: doğal Türkçe konuşursun, Tank siteleri ve uygulamaları açar, müziği ve sesi yönetir, sesli cevap verir.</p>
+   <p>Ücretsizdir ama kendi Google (Gemini) anahtarın gerekir; bir dakikada alırsın. Konuştuğun ses yalnızca sen başlattığında Google'a gönderilir ve Google ücretsiz kullanımda bunu ürünlerini geliştirmek için kullanabilir.</p>
+   <div class="row" style="justify-content:space-between"><button class="bt" id="w-skip">Şimdilik atla</button><button class="pri" id="w-next">Başla</button></div>`;
+  if(st===1)b=`<h1>Ücretsiz Gemini anahtarı al</h1>
+   <ol><li>Aşağıdaki düğmeyle Google AI Studio sayfasını aç ve Google hesabınla giriş yap.</li>
+   <li><b>API anahtarı oluştur</b> (Create API key) düğmesine bas.</li>
+   <li>Çıkan anahtarı kopyala (<span class="mono">AIza...</span> ile başlar). Kimseyle paylaşma.</li></ol>
+   <div><button class="bt" id="w-open">Anahtar sayfasını aç</button></div>
+   <div class="row" style="justify-content:space-between"><button class="bt" id="w-back">Geri</button><button class="pri" id="w-next">Anahtarım hazır</button></div>`;
+  if(st===2)b=`<h1>Anahtarı yapıştır</h1>
+   <p>Anahtar bu klasördeki ayar dosyasına, Windows hesabına bağlı şifreyle kaydedilir.</p>
+   <input id="w-key" type="password" placeholder="AIza..." style="width:100%">
+   <label class="ck"><input type="checkbox" id="w-port" style="height:auto" ${wz.portable?"checked":""}> Bu klasörü başka bilgisayarlara da taşıyacağım (anahtar şifrelenmeden saklanır)</label>
+   <div><button class="bt" id="w-test">Kaydet ve bağlantıyı dene</button></div><div class="res" id="w-res">${esc(wz.msg)}</div>
+   <div class="row" style="justify-content:space-between"><button class="bt" id="w-back">Geri</button><button class="pri" id="w-next" ${wz.ok?"":"disabled style='opacity:.4'"}>Devam</button></div>`;
+  if(st===3)b=`<h1>Nasıl uyansın?</h1>
+   <div class="pick"><button class="card ${wz.wake==="vosk"?"a":""}" data-wk="vosk"><b>“Hey Tank” de (önerilen)</b><span>Küçük çevrimdışı model sürekli dinler, ses internete gitmez. Uyandırınca Gemini konuşmaya başlar.</span></button>
+   <button class="card ${wz.wake==="off"?"a":""}" data-wk="off"><b>Sadece dokun</b><span>Daireye dokun veya Ctrl+Alt+T. Hiç yanlış uyanma, daha az bellek.</span></button></div>
+   <p>İstediğin zaman Ayarlar'dan değiştirebilirsin.</p>
+   <div class="row" style="justify-content:space-between"><button class="bt" id="w-back">Geri</button><button class="pri" id="w-next">Bitir</button></div>`;
+  $("wzbody").innerHTML=`<div class="steps">${dots}</div>`+b;
+  const on=(id,fn)=>{const e=$(id);if(e)e.onclick=fn};
+  on("w-skip",closeWiz); on("w-back",()=>{wz.step--;renderWiz()});
+  on("w-open",()=>api().open_external("https://aistudio.google.com/api-keys"));
+  on("w-next",async()=>{ if(st===3){await setCfg("wake_mode",wz.wake);await setCfg("listening",wz.wake==="vosk");syncListen();await closeWiz();return} if(st===2&&!wz.ok)return; wz.step++;renderWiz()});
+  on("w-test",async()=>{
+    const v=$("w-key").value.trim(); wz.portable=$("w-port").checked;
+    $("w-res").textContent="Kaydediliyor ve bağlanılıyor... (birkaç saniye)";
+    if(v){S.hasKey=await api().set_key(v,wz.portable)}
+    if(!S.hasKey){$("w-res").textContent="Önce anahtarı yapıştır.";return}
+    const r=await api().test_live();
+    if(r.ok){wz.ok=true;wz.msg="Bağlandı ✓ Model: "+r.model;S.cfg.live_model=r.model;$("w-key").value=""}
+    else{wz.ok=false;wz.msg="Bağlanamadı: "+r.error+" — anahtarı kontrol et; sorun sürerse Kayıt sekmesine bak."}
+    renderWiz()});
+  document.querySelectorAll("[data-wk]").forEach(e=>e.onclick=()=>{wz.wake=e.dataset.wk;renderWiz()});
+}
+
 /* ---------- durum dongusu ---------- */
 async function tick(){
   try{
@@ -318,6 +377,7 @@ window.addEventListener("pywebviewready",async()=>{
   S={shortcuts:d.shortcuts,cfg:d.config,mics:d.mics,outs:d.outs,voices:d.voices,tools:d.tools,auto:d.autostart,hasKey:d.has_key,models:[]};
   $("ver").textContent=d.version; $("n-sc").textContent=S.shortcuts.length; syncListen();
   setView("home"); requestAnimationFrame(loop); tick();
+  if(!d.has_key&&!d.config.onboarded)showWiz(0);
 });
 </script>
 </body>

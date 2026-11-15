@@ -49,13 +49,15 @@ SHORTCUTS_PATH = BASE / "shortcuts.json"
 OLD_COMMANDS_PATH = BASE / "commands.json"
 MODELS = BASE / "models"
 
-LIVE_MODEL_DEFAULT = "gemini-3.1-flash-live-preview"
+LIVE_MODEL_LEGACY = "gemini-3.1-flash-live-preview"   # Google bunu "eski" ilan etti; otomatik secim kullanilir
 VOICES = ["Charon", "Puck", "Kore", "Fenrir", "Aoede", "Zephyr", "Orus", "Leda"]
 
 DEFAULT_CONFIG = {
     "cfg_ver": 3,
     "api_key_enc": "",
-    "live_model": LIVE_MODEL_DEFAULT,
+    "live_model": "",            # bos = anahtarinin erisebildigi en iyi Live modeli otomatik secilir
+    "onboarded": False,          # ilk kurulum ekrani tamamlandi mi
+    "wake_mode": "vosk",         # vosk = "Hey Tank" cevrimdisi dinler | off = sadece daire / Ctrl+Alt+T
     "voice": "Charon",
     "speak": True,               # Gemini sesli cevap versin
     "idle_sec": 12,              # konusma olmazsa oturumu kapat (sn)
@@ -710,6 +712,42 @@ def system_prompt(core):
             f"Kayıtlı kısayollar: {sc}. Şu an: {now}.")
 
 
+def rank_live_models(names):
+    """Live modellerini tercih sirasina koyar: 3.8 live > diger 3.x live > native-audio (yeni tarih once)."""
+    groups = {}
+    for n in names:
+        l = n.lower()
+        if "translate" in l or "tts" in l:
+            continue
+        if "3.8" in l and "live" in l:
+            r = 0
+        elif "live" in l and "gemini-3" in l:
+            r = 1
+        elif "native-audio" in l:
+            r = 2
+        elif "live" in l:
+            r = 3
+        else:
+            continue
+        groups.setdefault(r, []).append(n)
+    out = []
+    for r in sorted(groups):
+        out += sorted(groups[r], reverse=True)
+    return out
+
+
+def list_live_models(key):
+    from google import genai
+    client = genai.Client(api_key=key)
+    live, allm = [], []
+    for m in client.models.list():
+        n = (m.name or "").replace("models/", "")
+        allm.append(n)
+        if "bidiGenerateContent" in (getattr(m, "supported_actions", None) or []):
+            live.append(n)
+    return live or [n for n in allm if "live" in n.lower() or "native-audio" in n.lower()]
+
+
 # ----------------------------------------------------------------------------
 # Cekirdek: ayarlar, kayit, durum
 # ----------------------------------------------------------------------------
@@ -722,6 +760,8 @@ class Core:
                 self.cfg[k] = raw[k]
         if not isinstance(self.cfg.get("tools"), dict):
             self.cfg["tools"] = {}
+        if self.cfg.get("live_model") == LIVE_MODEL_LEGACY:
+            self.cfg["live_model"] = ""      # eski model 404 veriyor olabilir -> otomatik sec
         if raw.get("cfg_ver", 0) < 3:       # 1.x -> 2.0: eski motor ayarlari atilir
             self.cfg["cfg_ver"] = 3
             save_json(CONFIG_PATH, self.cfg)
@@ -768,10 +808,12 @@ class Core:
     def save_shortcuts(self):
         save_json(SHORTCUTS_PATH, self.shortcuts)
 
-    def set_key(self, key):
+    def set_key(self, key, portable=False):
         key = (key or "").strip()
         if not key:
             self.cfg["api_key_enc"] = ""
+        elif portable:      # klasor baska bilgisayara tasinacaksa sifrelemeden sakla
+            self.cfg["api_key_enc"] = "plain:" + base64.b64encode(key.encode()).decode()
         else:
             try:
                 self.cfg["api_key_enc"] = "dpapi:" + base64.b64encode(_dpapi(key.encode())).decode()
@@ -910,19 +952,25 @@ class Engine(threading.Thread):
         self.reopen.clear()
 
         rec, strict = None, True
+        wake_model = None
         wake = cfg["wake_lang"] if cfg["wake_lang"] in WAKE_GRAMMAR else "tr"
         sens = cfg.get("wake_sens", "normal")
-        try:
-            from vosk import KaldiRecognizer, SetLogLevel
-            SetLogLevel(-1)
-            for k in list(self.models):
-                if k != wake:
-                    del self.models[k]
+        if cfg.get("wake_mode", "vosk") == "off":
+            self.models.clear()
             gc.collect()
-            wake_model = self.get_model(wake)
-        except Exception as e:
-            core.log(f"Uyandırma modeli yüklenemedi: {_short(e)}")
-            wake_model = None
+            core.log("“Hey Tank” dinleme kapalı: daireye dokun veya Ctrl+Alt+T.")
+        else:
+            try:
+                from vosk import KaldiRecognizer, SetLogLevel
+                SetLogLevel(-1)
+                for k in list(self.models):
+                    if k != wake:
+                        del self.models[k]
+                gc.collect()
+                wake_model = self.get_model(wake)
+            except Exception as e:
+                core.log(f"Uyandırma modeli yüklenemedi: {_short(e)}")
+                wake_model = None
         if wake_model is not None:
             phrases, strict = build_wake(wake_model, wake, cfg.get("strict_wake", True),
                                          None if sens == "sensitive" else 2)
@@ -933,7 +981,7 @@ class Engine(threading.Thread):
             rec = KaldiRecognizer(wake_model, SR, json.dumps(phrases + ["[unk]"], ensure_ascii=False))
             rec.SetWords(True)
             core.log(f"Uyandırma hassasiyeti: {sens}")
-        else:
+        elif cfg.get("wake_mode", "vosk") != "off":
             core.log("Uyandırma modeli yok: daireye tıkla veya Ctrl+Alt+T kullan.")
 
         aq = queue.Queue()
@@ -1031,6 +1079,7 @@ class Live:
         self.pq = queue.Queue()
         self._play_stop = False
         self.play_thread = None
+        self._connected = False
 
     def request_end(self):
         self.end_flag = True
@@ -1067,19 +1116,8 @@ class Live:
             core.state["level_out"] = 0.0
             core.close_chat()
 
-    async def _main(self, aq, thr):
-        from google import genai
-        from google.genai import types
+    def _config(self):
         core, cfg = self.core, self.core.cfg
-        key = core.get_key()
-        if not key:
-            core.log("Gemini API anahtarı yok. Ayarlar > Gemini bölümüne ekle.")
-            core.set_state("error", "Gemini anahtarı gerekli")
-            core.fb("fail")
-            time.sleep(1.5)
-            return
-        client = genai.Client(api_key=key)
-        decls = build_declarations(core)
         config = {
             "response_modalities": ["AUDIO"],
             "system_instruction": system_prompt(core),
@@ -1087,11 +1125,71 @@ class Live:
             "output_audio_transcription": {},
             "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": cfg.get("voice", "Charon")}}},
         }
+        decls = build_declarations(core)
         if decls:
             config["tools"] = [{"function_declarations": decls}]
-        model = cfg.get("live_model") or LIVE_MODEL_DEFAULT
+        return config
+
+    async def _main(self, aq, thr):
+        key = self.core.get_key()
+        if not key:
+            self.core.log("Gemini API anahtarı yok. Ayarlar > Gemini bölümüne ekle.")
+            self.core.set_state("error", "Gemini anahtarı gerekli")
+            self.core.fb("fail")
+            time.sleep(1.5)
+            return
+        await self.connect_loop(key, aq, thr, probe=False)
+
+    async def connect_loop(self, key, aq, thr, probe=False):
+        """Modeli dener; 404/desteklenmiyor ise anahtarin erisebildigi diger Live modellerine gecer."""
+        from google import genai
+        from google.genai import types
+        core, cfg = self.core, self.core.cfg
+        client = genai.Client(api_key=key)
+        config = self._config()
+        first = (cfg.get("live_model") or "").strip()
+        todo, tried, err, listed = ([first] if first else []), [], None, False
+        while True:
+            if not todo:
+                if listed:
+                    break
+                listed = True
+                core.set_state("connecting", "Model aranıyor...")
+                names = await asyncio.to_thread(list_live_models, key)
+                todo = [m for m in rank_live_models(names) if m not in tried]
+                core.log("Kullanılabilir Live modelleri: " + (", ".join(todo[:5]) or "yok"))
+                if not todo:
+                    break
+            model = todo.pop(0)
+            tried.append(model)
+            self._connected = False
+            t0 = time.time()
+            try:
+                await self._session(client, model, config, aq, thr, types, probe)
+                if cfg.get("live_model") != model:
+                    cfg["live_model"] = model
+                    core.save_cfg()
+                    core.log(f"Model seçildi: {model}")
+                return model
+            except Exception as e:
+                msg = str(e).lower()
+                modelish = any(x in msg for x in ("404", "not found", "not supported", "unsupported", "1008"))
+                early = (not self._connected) or (time.time() - t0 < 4)
+                if modelish and early and len(tried) < 5:
+                    core.log(f"Model kullanılamadı ({model}): {_short(e)}")
+                    err = e
+                    continue
+                raise
+        raise err or RuntimeError("Anahtarın erişebildiği bir Live modeli bulunamadı.")
+
+    async def _session(self, client, model, config, aq, thr, types, probe):
+        core = self.core
         core.set_state("connecting", "Bağlanıyor...")
         async with client.aio.live.connect(model=model, config=config) as session:
+            self._connected = True
+            if probe:
+                await asyncio.sleep(0.7)
+                return
             core.log(f"Gemini oturumu açıldı ({model}).")
             core.set_state("listen", "Dinliyorum")
             self._start_player()
@@ -1237,8 +1335,8 @@ class Live:
 # JS <-> Python koprusu (alt cizgili ozellikler pywebview'a gorunmez)
 # ----------------------------------------------------------------------------
 INT_KEYS = {"beep_volume", "idle_sec"}
-BOOL_KEYS = {"speak", "barge_in", "listening", "strict_wake", "hotkey", "feedback_sounds"}
-STR_KEYS = {"live_model", "voice", "wake_lang", "wake_sens", "beep_sound"}
+BOOL_KEYS = {"speak", "barge_in", "listening", "strict_wake", "hotkey", "feedback_sounds", "onboarded"}
+STR_KEYS = {"live_model", "voice", "wake_lang", "wake_sens", "beep_sound", "wake_mode"}
 
 
 class Api:
@@ -1299,23 +1397,35 @@ class Api:
         return True
 
     # --- Gemini
-    def set_key(self, key):
-        self._core.set_key(key)
+    def set_key(self, key, portable=False):
+        self._core.set_key(key, bool(portable))
         return bool(self._core.get_key())
+
+    def open_external(self, url):
+        if isinstance(url, str) and url.startswith("https://aistudio.google.com/"):
+            os.startfile(url)
+            return True
+        return False
+
+    def test_live(self):
+        """Gercek bir Live baglantisi acip kapatir: anahtar + model + arac semalari dogrulanir."""
+        c = self._core
+        key = c.get_key()
+        if not key:
+            return {"ok": False, "error": "Önce anahtarı kaydet."}
+        try:
+            model = asyncio.run(c.live.connect_loop(key, None, 0.0, probe=True))
+            c.set_state("wait", "“Hey Tank” bekleniyor")
+            return {"ok": True, "model": model}
+        except Exception as e:
+            return {"ok": False, "error": _short(e)}
 
     def check_key(self, key=""):
         key = (key or "").strip() or self._core.get_key()
         if not key:
             return {"ok": False, "error": "Anahtar boş."}
         try:
-            from google import genai
-            client = genai.Client(api_key=key)
-            models = []
-            for m in client.models.list():
-                acts = getattr(m, "supported_actions", None) or []
-                if "bidiGenerateContent" in acts:
-                    models.append((m.name or "").replace("models/", ""))
-            return {"ok": True, "models": sorted(models)}
+            return {"ok": True, "models": rank_live_models(list_live_models(key))}
         except Exception as e:
             return {"ok": False, "error": _short(e)}
 
@@ -1374,7 +1484,7 @@ class Api:
             value = str(value)
         c.cfg[key] = value
         c.save_cfg()
-        if key in ("mic_device", "wake_lang", "strict_wake", "wake_sens"):
+        if key in ("mic_device", "wake_lang", "strict_wake", "wake_sens", "wake_mode"):
             c.engine.reopen.set()
         return True
 
