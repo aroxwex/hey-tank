@@ -74,6 +74,7 @@ DEFAULT_CONFIG = {
     "beep_volume": 60,
     "feedback_sounds": True,
     "tools": {},                 # arac adi -> True/False
+    "seeded_v21": False,
 }
 
 WAKE_GRAMMAR = {
@@ -123,21 +124,86 @@ SYSTEM_ACTIONS = {
 }
 VK = {"vol_up": 0xAF, "vol_down": 0xAE, "mute": 0xAD,
       "play_pause": 0xB3, "next": 0xB0, "prev": 0xB1}
-EXT_VK = {0xAF, 0xAE, 0xAD, 0xB3, 0xB0, 0xB1}
+EXT_VK = {0xAF, 0xAE, 0xAD, 0xB3, 0xB0, 0xB1, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E}
 
 
-def press_combo(vks):
+def press_combo(vks, slow=False):
+    """slow=True: kisayol tuslari icin (Discord gibi uygulamalarin klavye kancasi kacirmasin)."""
     u = ctypes.windll.user32
     for v in vks:
-        u.keybd_event(v, 0, 1 if v in EXT_VK else 0, 0)
+        u.keybd_event(v, u.MapVirtualKeyW(v, 0), 1 if v in EXT_VK else 0, 0)
+        if slow:
+            time.sleep(0.03)
+    if slow:
+        time.sleep(0.06)
     for v in reversed(vks):
-        u.keybd_event(v, 0, (1 if v in EXT_VK else 0) | 2, 0)
+        u.keybd_event(v, u.MapVirtualKeyW(v, 0), (1 if v in EXT_VK else 0) | 2, 0)
+        if slow:
+            time.sleep(0.02)
 
 
 def press_key(vk, times=1):
     for _ in range(times):
         press_combo([vk])
         time.sleep(0.02)
+
+
+KEYMAP = {"ctrl": 0x11, "control": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B, "windows": 0x5B,
+          "enter": 0x0D, "esc": 0x1B, "escape": 0x1B, "tab": 0x09, "space": 0x20, "backspace": 0x08,
+          "delete": 0x2E, "del": 0x2E, "insert": 0x2D, "home": 0x24, "end": 0x23, "pageup": 0x21,
+          "pagedown": 0x22, "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+          "playpause": 0xB3, "nexttrack": 0xB0, "prevtrack": 0xB1, "mute": 0xAD,
+          "volumeup": 0xAF, "volumedown": 0xAE}
+
+
+def parse_keys(text):
+    """'ctrl+shift+m' -> [0x11, 0x10, 0x4D]; gecersizse None."""
+    vks = []
+    for part in re.split(r"\s*\+\s*", (text or "").strip().lower()):
+        if not part:
+            continue
+        if part in KEYMAP:
+            vks.append(KEYMAP[part])
+        elif re.fullmatch(r"[a-z0-9]", part):
+            vks.append(ord(part.upper()))
+        elif re.fullmatch(r"f([1-9]|1\d|2[0-4])", part):
+            vks.append(0x6F + int(part[1:]))
+        else:
+            return None
+    return vks or None
+
+
+def focus_window(query):
+    """Basliginda 'query' gecen gorunur pencereyi one getirir; basligi dondurur (yoksa None)."""
+    u = ctypes.windll.user32
+    VP = ctypes.c_void_p
+    u.IsWindowVisible.argtypes = [VP]
+    u.GetWindowTextLengthW.argtypes = [VP]
+    u.GetWindowTextW.argtypes = [VP, ctypes.c_wchar_p, ctypes.c_int]
+    u.ShowWindow.argtypes = [VP, ctypes.c_int]
+    u.SetForegroundWindow.argtypes = [VP]
+    wins, q = [], norm(query)
+    proc = ctypes.WINFUNCTYPE(ctypes.c_bool, VP, VP)
+
+    def cb(hwnd, lp):
+        if u.IsWindowVisible(hwnd):
+            n = u.GetWindowTextLengthW(hwnd)
+            if n:
+                buf = ctypes.create_unicode_buffer(n + 1)
+                u.GetWindowTextW(hwnd, buf, n + 1)
+                if q and q in norm(buf.value):
+                    wins.append((hwnd, buf.value))
+        return True
+
+    u.EnumWindows(proc(cb), 0)
+    if not wins:
+        return None
+    hwnd, title = wins[0]
+    u.ShowWindow(hwnd, 9)
+    u.keybd_event(0x12, 0, 0, 0)      # Alt: Windows'un on plana gecis kilidini acar
+    u.keybd_event(0x12, 0, 2, 0)
+    u.SetForegroundWindow(hwnd)
+    return title
 
 
 # Windows medya oturumlari (Spotify, tarayici, ...) ile dogrudan konusur; kucultulmus olsa da calisir.
@@ -410,6 +476,28 @@ def open_targets(sc, log):
     return {"ok": bool(opened), "opened": opened, "errors": errors}
 
 
+def run_shortcut_obj(sc, log):
+    res = {"ok": True}
+    if sc.get("targets"):
+        res = open_targets(sc, log)
+    if sc.get("focus") or sc.get("keys"):
+        if sc.get("targets"):
+            time.sleep(1.2)
+        if sc.get("focus"):
+            t = focus_window(sc["focus"])
+            log(f"Pencere öne getirildi: {t}" if t else f"Pencere bulunamadı: {sc['focus']}")
+            time.sleep(0.3)
+        if sc.get("keys"):
+            vks = parse_keys(sc["keys"])
+            if vks:
+                press_combo(vks, slow=True)
+                log(f"Tuşlar gönderildi: {sc['keys']}")
+                res = {"ok": True, "keys": sc["keys"]}
+            else:
+                res = {"ok": False, "error": "Tuş kombinasyonu geçersiz."}
+    return res
+
+
 # ----------------------------------------------------------------------------
 # Uygulama listesi (Baslat menusu) - "spotify'i ac", "discord ac" gibi
 # ----------------------------------------------------------------------------
@@ -559,8 +647,46 @@ def t_run_shortcut(core, a):
     name = norm(a.get("name") or "")
     for s in core.shortcuts:
         if s.get("enabled", True) and norm(s["name"]) == name:
-            return open_targets(s, core.log)
+            return run_shortcut_obj(s, core.log)
     return {"ok": False, "error": "Böyle bir kısayol yok."}
+
+
+BLOCKED_COMBOS = [{0x12, 0x73}, {0x11, 0x12, 0x2E}, {0x5B, 0x4C}]   # alt+f4, ctrl+alt+del, win+l
+
+
+def t_press_keys(core, a):
+    vks = parse_keys(a.get("keys"))
+    if not vks or len(vks) > 5:
+        return {"ok": False, "error": "Geçersiz tuş kombinasyonu. Örnek: ctrl+shift+m"}
+    if any(b <= set(vks) for b in BLOCKED_COMBOS):
+        return {"ok": False, "error": "Bu kombinasyon güvenlik için engelli."}
+    press_combo(vks, slow=True)
+    core.log(f"Tuşlar: {a.get('keys')}")
+    return {"ok": True}
+
+
+def t_focus_window(core, a):
+    t = focus_window(a.get("title") or "")
+    if not t:
+        return {"ok": False, "error": "Bu başlıkta açık bir pencere yok (uygulama tepsiye küçülmüş olabilir)."}
+    core.log(f"Pencere öne getirildi: {t}")
+    return {"ok": True, "window": t}
+
+
+def t_spotify_search(core, a):
+    import urllib.parse as up
+    q = (a.get("query") or "").strip()
+    if not q:
+        return {"ok": False, "error": "Arama boş."}
+    try:
+        os.startfile("spotify:search:" + up.quote(q))      # masaustu uygulamasi
+        core.log(f"Spotify uygulamasında arandı: {q}")
+        return {"ok": True, "opened": "Spotify uygulaması (arama sonuçları)",
+                "note": "Arama sonuçlarını açtım; şarkıyı otomatik başlatamıyorum, kullanıcı tıklamalı."}
+    except OSError:
+        os.startfile("https://open.spotify.com/search/" + up.quote(q))
+        return {"ok": True, "opened": "tarayıcı",
+                "note": "Spotify uygulaması bulunamadı, web'de açtım."}
 
 
 TR_DAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
@@ -616,9 +742,9 @@ TOOL_DEFS = [
          desc="Verilen web adresini tarayıcıda açar (youtube.com, spotify, steam:// vb.).",
          params={"url": _p("STRING", "Açılacak adres, örn. https://www.youtube.com")}, req=["url"]),
     dict(name="web_search", label="Arama yap", danger=False, fn=t_web_search,
-         desc="Google, YouTube veya Spotify'da arama yapar.",
+         desc="Tarayıcıda Google veya YouTube araması yapar (Spotify için spotify_search kullan).",
          params={"query": _p("STRING", "Aranacak ifade"),
-                 "site": _p("STRING", "Nerede aranacak", ["google", "youtube", "spotify"])}, req=["query"]),
+                 "site": _p("STRING", "Nerede aranacak", ["google", "youtube"])}, req=["query"]),
     dict(name="open_app", label="Uygulama aç", danger=False, fn=t_open_app,
          desc="Bilgisayardaki bir uygulamayı adıyla açar (Spotify, Discord, Not Defteri, Chrome...).",
          params={"name": _p("STRING", "Uygulamanın adı")}, req=["name"]),
@@ -638,6 +764,15 @@ TOOL_DEFS = [
     dict(name="run_shortcut", label="Kayıtlı kısayollar", danger=False, fn=t_run_shortcut,
          desc="Kullanıcının kendi tanımladığı kısayolu çalıştırır (oyun, özel site listesi, program).",
          params={"name": _p("STRING", "Kısayolun adı")}, req=["name"]),
+    dict(name="spotify_search", label="Spotify'da ara", danger=False, fn=t_spotify_search,
+         desc="Spotify masaüstü uygulamasında şarkı/sanatçı/albüm arar (tarayıcıda değil). Sonuçları açar, otomatik çalmaz.",
+         params={"query": _p("STRING", "Aranacak şarkı, sanatçı veya albüm")}, req=["query"]),
+    dict(name="press_keys", label="Klavye kısayolu gönder", danger=False, fn=t_press_keys,
+         desc="Klavye kısayolu gönderir (ctrl+shift+m, ctrl+t, win+d, f5...). Metin yazmaz. Uygulama içi işler için (Discord mikrofon tuşu, tarayıcı sekmesi vb.); odaktaki pencereye gider.",
+         params={"keys": _p("STRING", "Artı ile ayrılmış tuşlar, örn. ctrl+shift+m")}, req=["keys"]),
+    dict(name="focus_window", label="Pencereyi öne getir", danger=False, fn=t_focus_window,
+         desc="Başlığında verilen metin geçen açık pencereyi öne getirir (Discord, Spotify, Chrome...). Tuş göndermeden önce kullan.",
+         params={"title": _p("STRING", "Pencere başlığında geçen metin")}, req=["title"]),
     dict(name="get_datetime", label="Tarih ve saat", danger=False, fn=t_datetime,
          desc="Şu anki tarih, saat ve günü verir.", params={}, req=[]),
     dict(name="set_timer", label="Zamanlayıcı", danger=False, fn=t_timer,
@@ -699,16 +834,25 @@ def run_tool(core, name, args):
         return {"ok": False, "error": _short(e)}
 
 
-def system_prompt(core):
+def system_prompt(core, manual=False):
     sc = "; ".join(s["name"] + (f" ({s['hint']})" if s.get("hint") else "")
                    for s in core.shortcuts if s.get("enabled", True)) or "yok"
     now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
+    gate = ("Oturum kullanıcı tarafından elle başlatıldı; 'Hey Tank' beklemeden dinle. " if manual else
+            "Oturum 'Hey Tank' uyandırma kelimesiyle otomatik başladı ve çoğu zaman yanlış uyanma olabilir. "
+            "Konuşmanın başında 'Hey Tank' (ya da sana yönelik bir istek) duymazsan, yani başkasıyla konuşma, TV, "
+            "gürültü veya sessizlik varsa HİÇBİR ŞEY SÖYLEME ve hemen end_conversation aracını çağır. ")
     return ("Sen 'Tank' adlı, kullanıcının Windows bilgisayarını sesle yöneten Türkçe bir asistansın. "
             "Her zaman Türkçe konuş. Yanıtların çok kısa olsun (en fazla 1-2 cümle), samimi ama net. "
-            "Kullanıcı bilgisayarda bir şey yapmanı isterse ilgili aracı çağır; aracı çağırmadan 'yaptım' deme, "
-            "aracın sonucuna göre kısaca bildir. Araç hata verirse dürüstçe söyle. "
-            "'Hey Tank' uyandırma kelimesidir, onu yok say. Anlamazsan kısaca tekrar iste. "
-            "Silme, kapatma gibi riskli işlerde önce sözlü onay iste. "
+            + gate +
+            "Bilgisayarda bir şey yapmak için araçları kullan; aracı çağırmadan 'yaptım' deme, aracın sonucuna "
+            "(özellikle 'note' alanına) göre dürüstçe bildir. "
+            "Asla 'yetkim yok' deme. Bir iş için doğrudan aracın yoksa önce araçları birleştirmeyi dene: "
+            "uygulama içi işlerde focus_window + press_keys ile uygulamanın bilinen klavye kısayolunu kullan "
+            "(Discord mikrofon gibi işlerde kayıtlı bir kısayol varsa onu çalıştır). Yine olmuyorsa ne yapamadığını "
+            "ve kullanıcının ne yapabileceğini (örn. Discord'da Tuş Atamaları'ndan mikrofon tuşu atamak, Araçlar "
+            "sayfasından 'PowerShell' aracını açmak) tek cümleyle söyle. "
+            "Silme, kapatma gibi riskli işlerde önce sözlü onay iste. Anlamazsan kısaca tekrar iste. "
             "Kullanıcı işini bitirince (teşekkürler, tamam, kapat gibi) end_conversation aracını çağır. "
             f"Kayıtlı kısayollar: {sc}. Şu an: {now}.")
 
@@ -775,6 +919,15 @@ class Core:
             self.cfg["cfg_ver"] = 3
             save_json(CONFIG_PATH, self.cfg)
         self.shortcuts = load_shortcuts()
+        if not self.cfg.get("seeded_v21"):    # Discord ornek kisayolu (kapali): Discord'da tus atamasi gerekir
+            if not any(norm(x["name"]) == "discord mikrofon" for x in self.shortcuts):
+                self.shortcuts.append({"id": uuid.uuid4().hex[:8], "name": "Discord mikrofon",
+                                       "hint": "discord mikrofonu kapat/aç, sustur", "targets": [],
+                                       "keys": "ctrl+shift+m", "focus": "", "mode": "all", "args": "",
+                                       "enabled": False})
+                save_json(SHORTCUTS_PATH, self.shortcuts)
+            self.cfg["seeded_v21"] = True
+            save_json(CONFIG_PATH, self.cfg)
         self.lock = threading.Lock()
         self.logs = deque(maxlen=400)
         self.seq = 0
@@ -938,7 +1091,7 @@ class Engine(threading.Thread):
             except queue.Empty:
                 break
 
-    def start_live(self, aq, rec, noise):
+    def start_live(self, aq, rec, noise, preroll=None, manual=False):
         core = self.core
         thr = float(min(2500.0, max(300.0, np.median(noise) * 2.5))) if len(noise) else 300.0
         if rec is not None:
@@ -947,7 +1100,7 @@ class Engine(threading.Thread):
             threading.Thread(target=play_sound, args=(core.cfg.get("beep_sound", "rising"),
                              core.cfg.get("beep_volume", 60)), daemon=True).start()
         try:
-            core.live.run(aq, thr)
+            core.live.run(aq, thr, preroll, manual)
         except Exception as e:
             core.log(f"Oturum hatası: {_short(e)}")
         self.flush(aq)
@@ -1000,6 +1153,7 @@ class Engine(threading.Thread):
 
         noise = deque(maxlen=80)
         recent = deque(maxlen=8)
+        ring = deque(maxlen=16)       # son ~2 sn ham ses
         hits = 0
         with sd.RawInputStream(samplerate=SR, blocksize=2000, device=cfg.get("mic_device"),
                                dtype="int16", channels=1, callback=cb):
@@ -1014,6 +1168,7 @@ class Engine(threading.Thread):
                         raise RuntimeError("Mikrofondan ses gelmiyor")
                     continue
                 last_data = time.time()
+                ring.append(data)
                 arr = np.frombuffer(data, dtype=np.int16).astype(np.float32)
                 rms = float(np.sqrt(np.mean(arr ** 2)))
                 core.state["level"] = min(1.0, rms / 3000.0)
@@ -1021,7 +1176,7 @@ class Engine(threading.Thread):
                 if self.manual.is_set():
                     self.manual.clear()
                     core.log("Elle başlatıldı (daire / kısayol).")
-                    self.start_live(aq, rec, noise)
+                    self.start_live(aq, rec, noise, None, True)
                     last, last_data, hits = None, time.time(), 0
                     continue
                 listening = cfg.get("listening", True) and rec is not None
@@ -1067,7 +1222,7 @@ class Engine(threading.Thread):
                 if fire:
                     hits = 0
                     core.log(f"Uyandırma: “{txt}”" + (f" (güven {conf:.2f})" if conf is not None else ""))
-                    self.start_live(aq, rec, noise)
+                    self.start_live(aq, rec, noise, list(ring), False)
                     last, last_data = None, time.time()
 
 
@@ -1089,6 +1244,9 @@ class Live:
         self._play_stop = False
         self.play_thread = None
         self._connected = False
+        self.preroll = []
+        self.manual_start = False
+        self.activity = False
 
     def request_end(self):
         self.end_flag = True
@@ -1103,10 +1261,13 @@ class Live:
             except queue.Empty:
                 break
 
-    def run(self, aq, thr):
+    def run(self, aq, thr, preroll=None, manual=False):
         core = self.core
         if self.active:
             return
+        self.preroll = list(preroll or [])
+        self.manual_start = bool(manual)
+        self.activity = False
         self.active = True
         self.end_flag = self.stop_flag = self.speaking = False
         self.tool_busy = 0
@@ -1129,7 +1290,7 @@ class Live:
         core, cfg = self.core, self.core.cfg
         config = {
             "response_modalities": ["AUDIO"],
-            "system_instruction": system_prompt(core),
+            "system_instruction": system_prompt(core, self.manual_start),
             "input_audio_transcription": {},
             "output_audio_transcription": {},
             "speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": cfg.get("voice", "Charon")}}},
@@ -1253,6 +1414,9 @@ class Live:
         core, cfg = self.core, self.core.cfg
         idle = float(cfg.get("idle_sec", 12))
         barge = bool(cfg.get("barge_in", False))
+        for d in self.preroll:      # "Hey Tank" dahil son ~2 sn: Gemini uyandirmayi dogrular
+            await session.send_realtime_input(audio=types.Blob(data=d, mime_type="audio/pcm;rate=16000"))
+        self.preroll = []
         while not core.engine.stop.is_set():
             if self.stop_flag:
                 core.log("Oturum elle kapatıldı.")
@@ -1262,7 +1426,8 @@ class Live:
                 return
             now = time.time()
             quiet = now - max(self.last_voice, self.last_model, self.last_audio)
-            if (not busy and quiet > idle) or quiet > idle + 90:     # 2. kosul: takilmaya karsi emniyet
+            idle_now = idle if self.activity else min(idle, 8.0)
+            if (not busy and quiet > idle_now) or quiet > idle + 90:     # 2. kosul: takilmaya karsi emniyet
                 core.log("Konuşma olmadığı için oturum kapandı.")
                 return
             try:
@@ -1277,6 +1442,7 @@ class Live:
                 continue
             if rms > thr:
                 self.last_voice = now
+                self.activity = True
             await session.send_realtime_input(audio=types.Blob(data=data, mime_type="audio/pcm;rate=16000"))
 
     async def _recv(self, session, types):
@@ -1296,6 +1462,7 @@ class Live:
                             d = getattr(part, "inline_data", None)
                             if d and d.data and cfg.get("speak", True):
                                 self.speaking = True
+                                self.activity = True
                                 self.last_model = time.time()
                                 self.pq.put(bytes(d.data))
                     it = getattr(sc, "input_transcription", None)
@@ -1504,7 +1671,7 @@ class Api:
     def test_shortcut(self, sid):
         for x in self._core.shortcuts:
             if x["id"] == sid:
-                threading.Thread(target=open_targets, args=(x, self._core.log), daemon=True).start()
+                threading.Thread(target=run_shortcut_obj, args=(x, self._core.log), daemon=True).start()
         return True
 
     # --- araclar / ayarlar

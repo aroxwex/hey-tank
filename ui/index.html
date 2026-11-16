@@ -115,7 +115,7 @@ pre{margin:0;flex:1;overflow:auto;background:var(--panel);border:1px solid var(-
 
  <section class="view" id="v-shortcuts">
   <div class="bar"><h2 style="flex:1">Kısayollar</h2><button class="pri" id="new">Yeni kısayol</button></div>
-  <div class="ds" style="margin-top:-8px;max-width:640px">Kendi adlandırdığın işler: bir oyun, bir program ya da rastgele açılan siteler. Tank adını duyunca çalıştırır (“Manifest aç”, “CS2'yi aç”). Diğer her şeyi (site, uygulama, müzik, ses...) kısayol olmadan da yapabilir.</div>
+  <div class="ds" style="margin-top:-8px;max-width:640px">Kendi adlandırdığın işler: bir oyun, bir program, rastgele açılan siteler ya da bir uygulamanın tuş kısayolu (örn. Discord mikrofon). Tank adını duyunca çalıştırır (“Manifest aç”, “CS2'yi aç”). Diğer her şeyi (site, uygulama, müzik, ses...) kısayol olmadan da yapabilir.</div>
   <div class="list" id="list"></div>
  </section>
 
@@ -194,7 +194,7 @@ function setView(v){
 }
 
 /* ---------- kisayollar ---------- */
-function tagOf(s){return s.mode==="random"&&s.targets.length>1?`Rastgele · ${s.targets.length}`:(s.targets[0]||"").toLowerCase().startsWith("steam:")?"Oyun":/^(https?:)/i.test(s.targets[0]||"")?"Site":"Program"}
+function tagOf(s){if(s.keys&&!(s.targets||[]).length)return"Tuş";return s.mode==="random"&&s.targets.length>1?`Rastgele · ${s.targets.length}`:(s.targets[0]||"").toLowerCase().startsWith("steam:")?"Oyun":/^(https?:)/i.test(s.targets[0]||"")?"Site":"Program"}
 function renderShortcuts(){
   $("n-sc").textContent=S.shortcuts.length;
   let h=`<div class="rw hd"><span></span><span>Ad</span><span>Ne zaman (ipucu)</span><span>Tür</span><span></span></div>`;
@@ -210,8 +210,10 @@ function openEdit(id){
   $("dlg").innerHTML=`<h3>${id?"Kısayolu düzenle":"Yeni kısayol"}</h3>
   <label>Ad (Tank bu adı duyunca çalıştırır)<input id="f-name" value="${esc(c.name)}"></label>
   <label>İpucu (ne dediğinde? örn. “oyun, counter strike”)<input id="f-hint" value="${esc(c.hint||"")}"></label>
-  <label>Hedefler (her satıra bir tane: site, .exe yolu, steam://rungameid/...)<textarea id="f-tg" rows="4">${esc(c.targets.join("\n"))}</textarea></label>
+  <label>Hedefler (isteğe bağlı; her satıra bir tane: site, .exe yolu, steam://rungameid/...)<textarea id="f-tg" rows="3">${esc((c.targets||[]).join("\n"))}</textarea></label>
   <div><button class="bt" id="f-pick">Dosya seç (.exe vb.)</button></div>
+  <label>Önce şu pencereyi öne getir (isteğe bağlı; başlıkta geçen metin, örn. Discord)<input id="f-focus" value="${esc(c.focus||"")}"></label>
+  <label>Sonra şu tuşlara bas (isteğe bağlı; örn. ctrl+shift+m)<input id="f-keys" value="${esc(c.keys||"")}"></label>
   <label>Birden fazla hedef varsa<select id="f-mode"><option value="all" ${c.mode==="random"?"":"selected"}>Hepsini aç</option><option value="random" ${c.mode==="random"?"selected":""}>Rastgele birini aç</option></select></label>
   <label>Program parametreleri (isteğe bağlı)<input id="f-args" value="${esc(c.args||"")}"></label>
   <div class="row"><button class="bt" id="f-cancel">İptal</button><button class="pri" id="f-save">Kaydet</button></div>`;
@@ -219,8 +221,8 @@ function openEdit(id){
   $("f-cancel").onclick=()=>$("ov").classList.remove("on");
   $("f-pick").onclick=async()=>{const p=await api().pick_file();if(p){const t=$("f-tg");t.value=(t.value.trim()?t.value.trim()+"\n":"")+p}};
   $("f-save").onclick=async()=>{
-    const o={...c,name:$("f-name").value.trim(),hint:$("f-hint").value.trim(),targets:$("f-tg").value.split("\n").map(s=>s.trim()).filter(Boolean),mode:$("f-mode").value,args:$("f-args").value.trim()};
-    if(!o.name||!o.targets.length){alert("Ad ve en az bir hedef gerekli.");return}
+    const o={...c,name:$("f-name").value.trim(),hint:$("f-hint").value.trim(),targets:$("f-tg").value.split("\n").map(s=>s.trim()).filter(Boolean),mode:$("f-mode").value,args:$("f-args").value.trim(),focus:$("f-focus").value.trim(),keys:$("f-keys").value.trim()};
+    if(!o.name||(!o.targets.length&&!o.keys)){alert("Ad ve en az bir hedef ya da tuş kombinasyonu gerekli.");return}
     S.shortcuts=await api().save_shortcut(o);$("ov").classList.remove("on");renderShortcuts();
   };
 }
