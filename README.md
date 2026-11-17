@@ -1,15 +1,19 @@
-# Hey Tank 2.0
+# Hey Tank 2.2
 
 Windows için portable, ücretsiz sesli asistan. **Google Gemini Live** ile çalışır: doğal Türkçe konuşursun,
-Tank bilgisayarında işi yapar (site/uygulama açma, müzik, ses, kısayollar...) ve sesli cevap verir.
+Tank bilgisayarında işi yapar (site/uygulama/oyun açma, müzik, ses, dosya bulma, hava, sistem bilgisi, ekran analizi,
+hafıza, hatırlatıcı...) ve sesli cevap verir.
 
 ## Kurulum
 1. GitHub → **Actions → Build HeyTank → Run workflow**. Çıkan **HeyTank-portable** dosyasını indirip klasöre çıkar.
-2. `HeyTank.exe`'yi çalıştır → **Ayarlar > Gemini**: ücretsiz anahtarını (aistudio.google.com/apikey) yapıştır, "Kaydet ve dene".
-3. "Hey Tank" de, daireye dokun veya **Ctrl+Alt+T** bas.
+2. `HeyTank.exe`'yi çalıştır → kurulum sihirbazı ücretsiz Gemini anahtarını almana ve girmene yardım eder.
+3. Dinleme modu: **"Hey Tank"**, **Sürekli** (Jarvis gibi) veya **Dokun** (daire / Ctrl+Alt+T).
+
+## Güncelleme
+Yeni sürümü indirince HeyTank klasörünü değiştir ama **data** klasörünü koru. Ayarlar, kısayollar, hafıza ve
+hatırlatıcılar `data/` içinde durur. Eski sürümlerin `config.json` / `shortcuts.json` dosyaları ilk açılışta otomatik taşınır.
 
 ## Notlar
-- Her şey exe'nin klasöründe kalır (portable). Tek istisna: "Windows ile başlat" açılırsa HKCU\...\Run'a bir kayıt yazılır.
-- Her kullanıcı **kendi** Gemini anahtarını girer. Klasörü paylaşırken `config.json`'u verme.
-- Ses, konuşma sırasında Google'a gönderilir (yalnızca "Hey Tank" veya daire/kısayol ile başlattığında).
+- Her kullanıcı **kendi** Gemini anahtarını girer. Klasörü paylaşırken `data/` klasörünü verme.
+- Ses, oturum açıkken Google'a gönderilir (ücretsiz kullanımda Google ürünlerini geliştirmek için kullanabilir).
 - Gereksinim: Microsoft Edge WebView2 Runtime (Windows 11'de hazır; sorun olursa uygulama Edge penceresine geçer).
