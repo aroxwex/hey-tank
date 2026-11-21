@@ -1,4 +1,3 @@
-"""Derleme sirasinda (GitHub Actions) kucuk 'Hey Tank' uyandirma modellerini indirir."""
 import shutil, sys, tempfile, urllib.request, zipfile
 from pathlib import Path
 

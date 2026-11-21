@@ -2,8 +2,5 @@ __pycache__/
 build/
 dist/
 *.spec
-config.json
-shortcuts.json
-commands.json
+data/
 models/
-webview-data/

@@ -1,4 +1,3 @@
-# Hey Tank 2.0 - Gemini Live tabanli, portable Turkce sesli asistan (Windows)
 import sys
 import os
 
@@ -32,8 +31,8 @@ from pathlib import Path
 import numpy as np
 
 VERSION = "2.2"
-SR = 16000          # mikrofon (Gemini girisi)
-OUT_SR = 24000      # Gemini ses cikisi
+SR = 16000
+OUT_SR = 24000
 
 
 def base_dir() -> Path:
@@ -45,7 +44,7 @@ def base_dir() -> Path:
 BASE = base_dir()
 RES = Path(getattr(sys, "_MEIPASS", BASE))
 UI_FILE = RES / "ui" / "index.html"
-DATA = BASE / "data"          # kullanici verisi: surum guncellerken bu klasoru oldugu gibi koru
+DATA = BASE / "data"
 CONFIG_PATH = DATA / "config.json"
 SHORTCUTS_PATH = DATA / "shortcuts.json"
 MEMORY_PATH = DATA / "memory.json"
@@ -54,38 +53,39 @@ LOG_PATH = DATA / "hey-tank.log"
 OLD_COMMANDS_PATH = DATA / "commands.json"
 MODELS = BASE / "models"
 
-LIVE_MODEL_LEGACY = "gemini-3.1-flash-live-preview"   # Google bunu "eski" ilan etti; otomatik secim kullanilir
+DEAD_MODELS = {"gemini-3.1-flash-live-preview", "gemini-2.5-flash-native-audio-preview-12-2025",
+               "gemini-2.5-flash-native-audio-preview-09-2025", "gemini-live-2.5-flash-preview",
+               "gemini-2.0-flash-live-001"}
 VOICES = ["Charon", "Puck", "Kore", "Fenrir", "Aoede", "Zephyr", "Orus", "Leda"]
 
 DEFAULT_CONFIG = {
-    "cfg_ver": 4,
+    "cfg_ver": 5,
     "api_key_enc": "",
-    "api_version": "",            # bos = SDK varsayilani; baglanti sirasinda calisan surum kaydedilir
-    "live_model": "",            # bos = anahtarinin erisebildigi en iyi Live modeli otomatik secilir
-    "onboarded": False,          # ilk kurulum ekrani tamamlandi mi
-    "wake_mode": "vosk",         # vosk = "Hey Tank" cevrimdisi dinler | off = sadece daire / Ctrl+Alt+T
+    "api_version": "",
+    "live_model": "",
+    "onboarded": False,
+    "wake_mode": "vosk",
     "voice": "Charon",
-    "speak": True,               # Gemini sesli cevap versin
-    "idle_sec": 12,              # konusma olmazsa oturumu kapat (sn)
-    "barge_in": False,           # kulaklik modu: Tank konusurken sen de kesebilirsin
-    "listening": True,           # "Hey Tank" dinleme
-    "wake_lang": "tr",           # tr | en
-    "wake_sens": "normal",       # strict | normal | sensitive
+    "idle_sec": 20,
+    "barge_in": False,
+    "listening": True,
+    "wake_lang": "tr",
+    "wake_sens": "normal",
     "strict_wake": True,
-    "hotkey": True,              # Ctrl+Alt+T
+    "hotkey": True,
     "mic_device": None,
     "out_device": None,
     "beep_sound": "rising",
     "beep_volume": 60,
     "feedback_sounds": True,
-    "tools": {},                 # arac adi -> True/False
+    "tools": {},
     "seeded_v21": False,
-    "listen_mode": "wake",       # wake = "Hey Tank" | continuous = surekli dinle (Jarvis gibi) | tap = dokun / kisayol
-    "language": "auto",          # auto | tr | en | de | fr | es
-    "assistant_name": "Tank",
+    "listen_mode": "wake",
+    "language": "tr",
     "custom_instructions": "",
     "use_memory": True,
-    "google_search": False,      # Gemini'nin Google Aramasi (deneysel)
+    "google_search": True,
+    "advanced_settings": False,
     "sidebar_collapsed": False,
     "close_to_tray": True,
     "hotkey_combo": "ctrl+alt+t",
@@ -109,7 +109,6 @@ def is_wake(text: str, strict: bool = True) -> bool:
 
 
 def build_wake(model, wake, strict, limit=None):
-    """Modelin sozlugunde olmayan kelimeleri ayiklar. 'hey' bilinmiyorsa tek 'tank'a duser."""
     def known(w):
         try:
             return model.vosk_model_find_word(w) >= 0
@@ -122,29 +121,12 @@ def build_wake(model, wake, strict, limit=None):
     return singles, False
 
 
-# ----------------------------------------------------------------------------
-# Sistem eylemleri / acma
-# ----------------------------------------------------------------------------
-SYSTEM_ACTIONS = {
-    "lock": "Bilgisayarı kilitle",
-    "vol_up": "Sesi aç",
-    "vol_down": "Sesi kıs",
-    "mute": "Sesi kapat / aç (sessiz)",
-    "media_pause": "Müziği durdur (yalnızca çalıyorsa)",
-    "media_play": "Müziği başlat / devam ettir",
-    "play_pause": "Oynat/Duraklat tuşu (aç-kapa)",
-    "next": "Sonraki şarkı",
-    "prev": "Önceki şarkı",
-    "show_desktop": "Masaüstünü göster",
-    "screenshot": "Ekran alıntısı aracı (Win+Shift+S)",
-}
 VK = {"vol_up": 0xAF, "vol_down": 0xAE, "mute": 0xAD,
       "play_pause": 0xB3, "next": 0xB0, "prev": 0xB1}
 EXT_VK = {0xAF, 0xAE, 0xAD, 0xB3, 0xB0, 0xB1, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E}
 
 
 def press_combo(vks, slow=False):
-    """slow=True: kisayol tuslari icin (Discord gibi uygulamalarin klavye kancasi kacirmasin)."""
     u = ctypes.windll.user32
     for v in vks:
         u.keybd_event(v, u.MapVirtualKeyW(v, 0), 1 if v in EXT_VK else 0, 0)
@@ -173,7 +155,6 @@ KEYMAP = {"ctrl": 0x11, "control": 0x11, "shift": 0x10, "alt": 0x12, "win": 0x5B
 
 
 def parse_keys(text):
-    """'ctrl+shift+m' -> [0x11, 0x10, 0x4D]; gecersizse None."""
     vks = []
     for part in re.split(r"\s*\+\s*", (text or "").strip().lower()):
         if not part:
@@ -190,7 +171,6 @@ def parse_keys(text):
 
 
 def hotkey_parts(combo):
-    """'ctrl+alt+t' -> (modifiers, vk); gecersizse (0, 0). En az bir modifier + bir tus sart."""
     vks = parse_keys(combo)
     if not vks:
         return 0, 0
@@ -205,7 +185,6 @@ def hotkey_parts(combo):
 
 
 def focus_window(query):
-    """Basliginda 'query' gecen gorunur pencereyi one getirir; basligi dondurur (yoksa None)."""
     u = ctypes.windll.user32
     VP = ctypes.c_void_p
     u.IsWindowVisible.argtypes = [VP]
@@ -231,13 +210,12 @@ def focus_window(query):
         return None
     hwnd, title = wins[0]
     u.ShowWindow(hwnd, 9)
-    u.keybd_event(0x12, 0, 0, 0)      # Alt: Windows'un on plana gecis kilidini acar
+    u.keybd_event(0x12, 0, 0, 0)
     u.keybd_event(0x12, 0, 2, 0)
     u.SetForegroundWindow(hwnd)
     return title
 
 
-# Windows medya oturumlari (Spotify, tarayici, ...) ile dogrudan konusur; kucultulmus olsa da calisir.
 MEDIA_PS = r"""
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
@@ -284,7 +262,7 @@ def run_system(name, log=None):
         if ok and out.startswith("DONE"):
             n = int(out.split()[-1])
             log("Çalan müzik yok." if (act == "pause" and n == 0) else f"Medya: {act} gönderildi.")
-        elif ok:   # NOSESSION
+        elif ok:
             log("Açık bir medya oturumu bulunamadı.")
             if act != "pause":
                 press_key({"play": VK["play_pause"], "next": VK["next"], "prev": VK["prev"]}[act])
@@ -300,7 +278,6 @@ def run_system(name, log=None):
         press_key(VK[name])
 
 
-# ---- bip sesleri (bellekte uretilir, ses seviyesi ayarli) ----
 SND_SR = 22050
 
 
@@ -369,7 +346,7 @@ def play_sound(name, vol=60):
             return
         if name not in SOUNDS:
             name = "rising"
-        winsound.PlaySound(_wav_bytes(name, vol), winsound.SND_MEMORY)   # senkron: thread icinde cagrilir
+        winsound.PlaySound(_wav_bytes(name, vol), winsound.SND_MEMORY)
     except Exception:
         pass
 
@@ -391,7 +368,6 @@ def save_json(path, data):
 
 
 def _migrate_old():
-    """Eski surumlerde exe'nin yanina yazilan dosyalari data/ klasorune tasir."""
     for name in ("config.json", "shortcuts.json", "commands.json"):
         old, new = BASE / name, DATA / name
         if old.exists() and not new.exists():
@@ -414,9 +390,6 @@ def norm(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-# ----------------------------------------------------------------------------
-# Windows ile baslat (HKCU\...\Run - yonetici izni gerekmez)
-# ----------------------------------------------------------------------------
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
@@ -448,9 +421,6 @@ def set_autostart(on: bool):
                 pass
 
 
-# ----------------------------------------------------------------------------
-# API anahtari: Windows DPAPI ile sifrelenir (sadece bu kullanici/bilgisayar cozer)
-# ----------------------------------------------------------------------------
 def _dpapi(data: bytes, decrypt: bool = False) -> bytes:
     import ctypes.wintypes as wt
 
@@ -473,9 +443,6 @@ def _short(e, n=220) -> str:
     return (str(e) or repr(e))[:n]
 
 
-# ----------------------------------------------------------------------------
-# Kisayollar (senin tanimladigin adlandirilmis islemler: site/exe/oyun/rastgele)
-# ----------------------------------------------------------------------------
 def load_shortcuts():
     sc = load_json(SHORTCUTS_PATH, None)
     if isinstance(sc, list):
@@ -486,7 +453,7 @@ def load_shortcuts():
     out = []
     old = load_json(OLD_COMMANDS_PATH, [])
     skip = {"YouTube", "Google", "Spotify", "Not Defteri", "Hesap Makinesi", "Dosya Gezgini", "CS2"}
-    for c in (old if isinstance(old, list) else []):   # eski 1.x komutlarindan kendi eklediklerini tasi
+    for c in (old if isinstance(old, list) else []):
         if c.get("system") or not c.get("targets") or c.get("name") in skip:
             continue
         out.append({"id": c.get("id") or uuid.uuid4().hex[:8], "name": c["name"],
@@ -544,9 +511,6 @@ def run_shortcut_obj(sc, log):
     return res
 
 
-# ----------------------------------------------------------------------------
-# Uygulama listesi (Baslat menusu) - "spotify'i ac", "discord ac" gibi
-# ----------------------------------------------------------------------------
 _apps = None
 _apps_lock = threading.Lock()
 KNOWN_APPS = {"not defteri": "notepad.exe", "notepad": "notepad.exe", "hesap makinesi": "calc.exe",
@@ -576,9 +540,6 @@ def get_apps():
         return _apps
 
 
-# ----------------------------------------------------------------------------
-# Gemini'nin cagirabilecegi araclar
-# ----------------------------------------------------------------------------
 def _p(t, d, enum=None):
     p = {"type": t, "description": d}
     if enum:
@@ -697,7 +658,7 @@ def t_run_shortcut(core, a):
     return {"ok": False, "error": "Böyle bir kısayol yok."}
 
 
-BLOCKED_COMBOS = [{0x12, 0x73}, {0x11, 0x12, 0x2E}, {0x5B, 0x4C}]   # alt+f4, ctrl+alt+del, win+l
+BLOCKED_COMBOS = [{0x12, 0x73}, {0x11, 0x12, 0x2E}, {0x5B, 0x4C}]
 
 
 def t_press_keys(core, a):
@@ -725,7 +686,7 @@ def t_spotify_search(core, a):
     if not q:
         return {"ok": False, "error": "Arama boş."}
     try:
-        os.startfile("spotify:search:" + up.quote(q))      # masaustu uygulamasi
+        os.startfile("spotify:search:" + up.quote(q))
         core.log(f"Spotify uygulamasında arandı: {q}")
         return {"ok": True, "opened": "Spotify uygulaması (arama sonuçları)",
                 "note": "Arama sonuçlarını açtım; şarkıyı otomatik başlatamıyorum, kullanıcı tıklamalı."}
@@ -767,10 +728,6 @@ def t_powershell(core, a):
     return {"ok": r.returncode == 0, "output": ((r.stdout or "") + (r.stderr or ""))[:1500]}
 
 
-
-# ---------------------------------------------------------------------------
-# Genisletilmis araclar: hafiza, hatirlatici, sistem, hava, medya, ekran, dosya, oyun
-# ---------------------------------------------------------------------------
 def t_save_memory(core, a):
     if not core.cfg.get("use_memory", True):
         return {"ok": False, "error": "Hafıza ayarlardan kapatılmış."}
@@ -899,21 +856,33 @@ def t_play_media(core, a):
     return {"ok": True, "opened": "YouTube arama sayfası", "note": "İlk videoyu bulamadım, sonuçları açtım."}
 
 
-VISION_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
+def vision_models(client):
+    found = []
+    try:
+        for m in client.models.list():
+            n = (m.name or "").replace("models/", "")
+            if "generateContent" not in (getattr(m, "supported_actions", None) or []):
+                continue
+            mt = re.fullmatch(r"gemini-(\d+(?:\.\d+)?)-flash(-lite)?", n)
+            if mt:
+                found.append((-float(mt.group(1)), 1 if mt.group(2) else 0, n))
+    except Exception:
+        pass
+    found.sort()
+    return list(dict.fromkeys([n for _, _, n in found] + ["gemini-3.8-flash", "gemini-3.5-flash-lite"]))
 
 
 def t_analyze_screen(core, a):
     from PIL import ImageGrab
-    from google import genai
     from google.genai import types
     img = ImageGrab.grab()
     img.thumbnail((1600, 1600))
     buf = io.BytesIO()
     img.convert("RGB").save(buf, "JPEG", quality=75)
-    client = genai.Client(api_key=core.get_key())
+    client = make_client(core.get_key())
     q = (a.get("question") or "Ekranda ne var? Kısaca özetle.") + " Türkçe ve kısa cevap ver."
     last = None
-    for m in VISION_MODELS:
+    for m in vision_models(client)[:4]:
         try:
             r = client.models.generate_content(
                 model=m, contents=[types.Part.from_bytes(data=buf.getvalue(), mime_type="image/jpeg"), q])
@@ -921,6 +890,159 @@ def t_analyze_screen(core, a):
         except Exception as e:
             last = e
     return {"ok": False, "error": _short(last, 200)}
+
+
+APPVOL_PS = r"""
+$ErrorActionPreference = "Stop"
+Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+
+[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
+class MMDeviceEnumeratorComObject { }
+
+[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator {
+    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint);
+}
+
+[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice {
+    int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+}
+
+[Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionManager2 {
+    int GetAudioSessionControl(IntPtr a, int b, out IntPtr c);
+    int GetSimpleAudioVolume(IntPtr a, int b, out IntPtr c);
+    int GetSessionEnumerator(out IAudioSessionEnumerator e);
+}
+
+[Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionEnumerator {
+    int GetCount(out int count);
+    int GetSession(int index, out IAudioSessionControl2 session);
+}
+
+[Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionControl2 {
+    int GetState(out int s);
+    int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string n);
+    int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string n, ref Guid c);
+    int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string p);
+    int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string p, ref Guid c);
+    int GetGroupingParam(out Guid g);
+    int SetGroupingParam(ref Guid g, ref Guid c);
+    int RegisterAudioSessionNotification(IntPtr n);
+    int UnregisterAudioSessionNotification(IntPtr n);
+    int GetSessionIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetSessionInstanceIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetProcessId(out uint pid);
+    int IsSystemSoundsSession();
+    int SetDuckingPreference(bool optOut);
+}
+
+[Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface ISimpleAudioVolume {
+    int SetMasterVolume(float level, ref Guid ctx);
+    int GetMasterVolume(out float level);
+    int SetMute(bool mute, ref Guid ctx);
+    int GetMute(out bool mute);
+}
+
+public static class AppVol {
+    public static string Run(string action, string app, int level) {
+        IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorComObject();
+        IMMDevice dev;
+        Marshal.ThrowExceptionForHR(en.GetDefaultAudioEndpoint(0, 1, out dev));
+        Guid iid = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+        object o;
+        Marshal.ThrowExceptionForHR(dev.Activate(ref iid, 23, IntPtr.Zero, out o));
+        IAudioSessionManager2 mgr = (IAudioSessionManager2)o;
+        IAudioSessionEnumerator se;
+        Marshal.ThrowExceptionForHR(mgr.GetSessionEnumerator(out se));
+        int n;
+        se.GetCount(out n);
+        List<string> all = new List<string>();
+        List<string> hit = new List<string>();
+        string needle = (app == null ? "" : app).ToLowerInvariant();
+        for (int i = 0; i < n; i++) {
+            IAudioSessionControl2 c;
+            se.GetSession(i, out c);
+            uint pid;
+            c.GetProcessId(out pid);
+            string name = "sistem";
+            if (pid != 0) {
+                try { name = Process.GetProcessById((int)pid).ProcessName; } catch (Exception) { }
+            }
+            ISimpleAudioVolume v = (ISimpleAudioVolume)c;
+            float vol;
+            bool mute;
+            v.GetMasterVolume(out vol);
+            v.GetMute(out mute);
+            all.Add(name + "=" + Math.Round(vol * 100) + (mute ? "(sessiz)" : ""));
+            if (action != "list" && needle.Length > 0 && name.ToLowerInvariant().Contains(needle)) {
+                Guid ctx = Guid.Empty;
+                float nv = vol;
+                if (action == "set") nv = level / 100f;
+                else if (action == "up") nv = Math.Min(1f, vol + level / 100f);
+                else if (action == "down") nv = Math.Max(0f, vol - level / 100f);
+                if (action == "mute") v.SetMute(true, ref ctx);
+                else if (action == "unmute") v.SetMute(false, ref ctx);
+                else v.SetMasterVolume(nv, ref ctx);
+                hit.Add(name + "=" + Math.Round(nv * 100));
+            }
+        }
+        if (action == "list") return "LIST|" + string.Join(", ", all.ToArray());
+        if (hit.Count == 0) return "NOMATCH|" + string.Join(", ", all.ToArray());
+        return "OK|" + string.Join(", ", hit.ToArray());
+    }
+}
+"@
+Write-Output ([AppVol]::Run($Action, $App, [int]$Level))
+"""
+
+
+def appvol_ps(action, app="", level=0):
+    head = "$Action = '%s'\n$App = '%s'\n$Level = %d\n" % (action, str(app).replace("'", "''"), int(level))
+    enc = base64.b64encode((head + APPVOL_PS).encode("utf-16-le")).decode()
+    try:
+        r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                            "-EncodedCommand", enc], capture_output=True, text=True, timeout=30,
+                           creationflags=0x08000000)
+        out = (r.stdout or "").strip()
+        return r.returncode == 0 and "|" in out, (out or (r.stderr or "")[:200])
+    except Exception as e:
+        return False, repr(e)
+
+
+def t_app_volume(core, a):
+    act = a.get("action") or "set"
+    if act not in ("set", "up", "down", "mute", "unmute"):
+        return {"ok": False, "error": "Bilinmeyen eylem."}
+    try:
+        lvl = max(0, min(100, int(a.get("amount") if a.get("amount") not in (None, "") else 10)))
+    except Exception:
+        lvl = 10
+    ok, out = appvol_ps(act, a.get("app") or "", lvl)
+    if not ok:
+        return {"ok": False, "error": "Ses karıştırıcıya erişilemedi: " + out[:150]}
+    kind, _, rest = out.partition("|")
+    if kind == "OK":
+        core.log(f"Uygulama sesi: {rest}")
+        return {"ok": True, "uygulamalar": rest}
+    return {"ok": False, "error": "Bu ada sahip ses çalan uygulama yok.", "calan_uygulamalar": rest,
+            "note": "Ses çalan uygulamalar: " + (rest or "yok") + ". Doğru adı seçip bir kez daha dene."}
+
+
+def t_list_audio_apps(core, a):
+    ok, out = appvol_ps("list")
+    if not ok:
+        return {"ok": False, "error": "Ses karıştırıcıya erişilemedi: " + out[:150]}
+    return {"ok": True, "uygulamalar": out.partition("|")[2]}
 
 
 FOLDER_NAMES = {"masaüstü": ["Desktop", "Masaüstü"], "desktop": ["Desktop", "Masaüstü"],
@@ -999,7 +1121,7 @@ def t_find_files(core, a):
         else:
             found, _ = _search_files(folder, roots, kind="dir", limit=3)
             roots = [Path(f["path"]) for f in found] or roots
-    if not folder:      # surucu kokleri (D:\Games gibi) en sona
+    if not folder:
         for L in "DEFG":
             d = Path(L + ":\\")
             if d.exists() and d not in roots:
@@ -1007,6 +1129,7 @@ def t_find_files(core, a):
     res, capped = _search_files(q, roots, kind=a.get("kind") or "any")
     out = {"ok": True, "sonuclar": res}
     if not res:
+        out["status"] = "no_results"
         out["note"] = "Eşleşen bulunamadı" + (" (tarama sınırına ulaşıldı, klasör belirtmeyi dene)." if capped else ".")
     elif capped:
         out["note"] = "Tarama sınırına ulaşıldı; liste eksik olabilir."
@@ -1114,7 +1237,7 @@ def t_launch_game(core, a):
         os.startfile(g["launch"])
         core.log(f"Oyun başlatıldı: {g['name']} ({g['kind']})")
         return {"ok": True, "opened": g["name"], "kaynak": g["kind"]}
-    r = t_open_app(core, {"name": name})          # Baslat menusundeki kisayol
+    r = t_open_app(core, {"name": name})
     if r.get("ok"):
         return r
     return {"ok": False, "error": f"'{name}' oyunu Steam/Epic kütüphanesinde ve Başlat menüsünde bulunamadı.",
@@ -1126,7 +1249,8 @@ TOOL_GROUPS = {"open_url": "Web & Uygulama", "web_search": "Web & Uygulama", "op
                "run_shortcut": "Web & Uygulama", "focus_window": "Web & Uygulama", "press_keys": "Web & Uygulama",
                "launch_game": "Dosya & Oyun", "find_files": "Dosya & Oyun", "list_folder": "Dosya & Oyun",
                "open_path": "Dosya & Oyun", "media_control": "Medya & Ses", "play_media": "Medya & Ses",
-               "spotify_search": "Medya & Ses", "set_volume": "Medya & Ses", "system_info": "Sistem & Bilgi",
+               "spotify_search": "Medya & Ses", "set_volume": "Medya & Ses", "set_app_volume": "Medya & Ses",
+               "list_audio_apps": "Medya & Ses", "system_info": "Sistem & Bilgi",
                "get_weather": "Sistem & Bilgi", "analyze_screen": "Sistem & Bilgi", "get_datetime": "Sistem & Bilgi",
                "lock_computer": "Sistem & Bilgi", "take_screenshot": "Sistem & Bilgi", "show_desktop": "Sistem & Bilgi",
                "save_memory": "Hafıza & Hatırlatıcı", "delete_memory": "Hafıza & Hatırlatıcı",
@@ -1146,6 +1270,13 @@ TOOL_DEFS = [
     dict(name="open_app", label="Uygulama aç", danger=False, fn=t_open_app,
          desc="Bilgisayardaki bir uygulamayı adıyla açar (Spotify, Discord, Not Defteri, Chrome...).",
          params={"name": _p("STRING", "Uygulamanın adı")}, req=["name"]),
+    dict(name="set_app_volume", label="Uygulama sesi", danger=False, fn=t_app_volume,
+         desc="Tek bir uygulamanın sesini ayarlar (Spotify, Discord, Chrome, oyunlar...): belirli yüzdeye getir, artır, azalt, sessize al.",
+         params={"app": _p("STRING", "Uygulamanın adı, örn. spotify, discord, chrome"),
+                 "action": _p("STRING", "İşlem", ["set", "up", "down", "mute", "unmute"]),
+                 "amount": _p("INTEGER", "Yüzde (set için hedef seviye, up/down için değişim)")}, req=["app", "action"]),
+    dict(name="list_audio_apps", label="Ses çalan uygulamalar", danger=False, fn=t_list_audio_apps,
+         desc="Şu an ses çalan uygulamaları ve ses seviyelerini listeler.", params={}, req=[]),
     dict(name="media_control", label="Müzik / medya kontrolü", danger=False, fn=t_media_control,
          desc="Çalan müziği/videoyu durdurur, başlatır veya parça değiştirir. Küçültülmüş uygulamalarda da çalışır.",
          params={"action": _p("STRING", "Yapılacak işlem", ["pause", "play", "next", "previous"])}, req=["action"]),
@@ -1249,56 +1380,90 @@ def build_declarations(core):
     return out
 
 
+def hint_for_error(err):
+    e = str(err or "")
+    if re.search(r"API key not valid|API_KEY_INVALID|invalid api key", e, re.I):
+        return "Anahtar geçersiz görünüyor."
+    if re.search(r"location is not supported|FAILED_PRECONDITION", e, re.I):
+        return "Google bu bölgede servisi desteklemiyor olabilir."
+    if re.search(r"429|quota|RESOURCE_EXHAUSTED", e, re.I):
+        return "Kota dolmuş görünüyor."
+    if re.search(r"403|PERMISSION_DENIED", e, re.I):
+        return "İzin reddedildi."
+    return _short(e, 160)
+
+
+def finish_result(res):
+    ok = bool(res.get("ok"))
+    res.setdefault("status", "ok" if ok else "error")
+    res.setdefault("retryable", False)
+    res.setdefault("message", res.get("note") or res.get("error") or ("Tamamlandı." if ok else "İşlem başarısız oldu."))
+    return res
+
+
 def run_tool(core, name, args):
     t = TOOLS.get(name)
     if not t or not core.tool_enabled(name):
         core.log(f"Araç reddedildi: {name}")
-        return {"ok": False, "error": "Bu araç kapalı veya yok."}
+        return finish_result({"ok": False, "error": "Bu araç kapalı veya yok."})
     try:
         if t["danger"]:
             detail = args.get("script") or args.get("name") or json.dumps(args, ensure_ascii=False)
             if not core.confirm(t["label"], str(detail)):
                 core.log(f"Onaylanmadı: {name}")
-                return {"ok": False, "error": "Kullanıcı onaylamadı."}
-        res = t["fn"](core, args)
+                return finish_result({"ok": False, "error": "Kullanıcı onaylamadı."})
+        res = finish_result(t["fn"](core, args))
         core.log(f"Araç: {name} {json.dumps(args, ensure_ascii=False)[:120]}")
         core.fb("ok" if res.get("ok") else "fail")
         return res
     except Exception as e:
         core.log(f"Araç hatası ({name}): {_short(e)}")
         core.fb("fail")
-        return {"ok": False, "error": _short(e)}
+        return finish_result({"ok": False, "error": _short(e)})
 
 
-LANGS = {"tr": ("tr-TR", "Türkçe"), "en": ("en-US", "English"), "de": ("de-DE", "Deutsch"),
-         "fr": ("fr-FR", "Français"), "es": ("es-ES", "Español")}
+LANGS = {"tr": ("tr-TR", "Türkçe", "Turkish"), "en": ("en-US", "English", "English"),
+         "de": ("de-DE", "Deutsch", "German"), "fr": ("fr-FR", "Français", "French"),
+         "es": ("es-ES", "Español", "Spanish")}
+
+
+def build_vocab(core):
+    words = ["Hey Tank", "Tank", "Spotify", "Discord", "Steam", "YouTube", "WhatsApp"]
+    words += [x["name"] for x in core.shortcuts if x.get("enabled", True)]
+    words += [g["name"] for g in core.games_cache[:25]]
+    out = []
+    for w in words:
+        w = str(w).strip()[:40]
+        if w and w not in out:
+            out.append(w)
+    return out[:60]
 
 
 def system_prompt(core, manual=False):
     cfg = core.cfg
-    name = (cfg.get("assistant_name") or "Tank").strip() or "Tank"
     mode = cfg.get("listen_mode", "wake")
-    sc = "; ".join(s["name"] + (f" ({s['hint']})" if s.get("hint") else "")
-                   for s in core.shortcuts if s.get("enabled", True)) or "yok"
+    sc = "; ".join(x["name"] + (f" ({x['hint']})" if x.get("hint") else "")
+                   for x in core.shortcuts if x.get("enabled", True)) or "yok"
     now = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
-    lang = cfg.get("language", "auto")
+    lang = cfg.get("language", "tr")
     if lang in LANGS:
-        ln = LANGS[lang][1]
-        lang_rule = (f"Kullanıcı yalnızca {ln} konuşur. Duyduğun sesi her zaman {ln} olarak yorumla (ses başka bir dil "
-                     f"gibi görünse bile) ve yalnızca {ln} cevap ver. ")
+        ln, en = LANGS[lang][1], LANGS[lang][2]
+        lang_rule = (f"Kullanıcı yalnızca {ln} konuşur. Duyduğun sesi her zaman {ln} olarak yorumla (başka bir dil gibi "
+                     f"görünse bile) ve yalnızca {ln} cevap ver. RESPOND IN {en.upper()}. YOU MUST RESPOND UNMISTAKABLY "
+                     f"IN {en.upper()}. ")
     else:
         lang_rule = ("Kullanıcı büyük olasılıkla Türkçe konuşur; ses net değilse Türkçe varsay. Kullanıcı hangi dilde "
                      "konuşursa o dilde cevap ver, belirsizse Türkçe. ")
     if mode == "continuous":
-        gate = (f"Sürekli dinleme modundasın: çevredeki konuşmaları (TV, başkalarıyla sohbet) ve sana yönelik "
-                f"olmayan sesleri duymazdan gel, SESSİZ KAL. Yalnızca adın ('{name}' ya da 'Hey {name}') geçtiğinde "
-                f"veya sana açıkça bir istek/soru yöneltildiğinde cevap ver. end_conversation aracını çağırma. ")
+        gate = ("Sürekli dinleme modundasın: çevredeki konuşmaları (TV, başkalarıyla sohbet) ve sana yönelik olmayan "
+                "sesleri duymazdan gel ve sessiz kal. Yalnızca adın ('Tank' ya da 'Hey Tank') geçtiğinde veya sana açıkça "
+                "bir istek, soru ya da sohbet yöneltildiğinde cevap ver. end_conversation aracını çağırma. ")
     elif manual:
         gate = "Oturum kullanıcı tarafından elle başlatıldı; 'Hey Tank' beklemeden dinle. "
     else:
-        gate = ("Oturum 'Hey Tank' uyandırma kelimesiyle otomatik başladı ve çoğu zaman yanlış uyanma olabilir. "
-                "Konuşmanın başında 'Hey Tank' (ya da sana yönelik bir istek) duymazsan, yani başkasıyla konuşma, TV, "
-                "gürültü veya sessizlik varsa HİÇBİR ŞEY SÖYLEME ve hemen end_conversation aracını çağır. ")
+        gate = ("Oturum 'Hey Tank' uyandırma kelimesiyle otomatik başladı ve yanlış uyanma olabilir. Konuşmanın başında "
+                "'Hey Tank' ya da sana yönelik herhangi bir söz (istek, soru, sohbet) duymazsan, yani başkasıyla "
+                "konuşma, TV, gürültü veya sessizlik varsa HİÇBİR ŞEY SÖYLEME ve hemen end_conversation aracını çağır. ")
     mem = mem_rule = ""
     if cfg.get("use_memory", True):
         if core.memory:
@@ -1308,42 +1473,49 @@ def system_prompt(core, manual=False):
                     "sessizce kaydet; bilgi yanlış ya da eskiyse delete_memory ile sil. ")
     custom = (cfg.get("custom_instructions") or "").strip()
     custom = f"Kullanıcının ek talimatları: {custom[:1200]}. " if custom else ""
-    return (f"Sen '{name}' adlı, kullanıcının Windows bilgisayarını sesle yöneten bir asistansın. "
-            + lang_rule +
-            "Yanıtların çok kısa olsun (en fazla 1-2 cümle), samimi ama net. "
+    return ("Sen Tank'sın: kullanıcının Windows bilgisayarını yöneten ve aynı zamanda onunla sohbet edebilen zeki, "
+            "samimi, hafif esprili bir sesli asistansın. Kullanıcıya 'sen' diye hitap et. " + lang_rule +
+            "Sohbet, soru, fikir ve açıklama isteklerinde normal bir arkadaş gibi doğal konuş; yeterince açıklayıcı ol "
+            "ama gereksiz uzatma. Sesli konuştuğunu unutma: madde işareti, markdown ve emoji kullanma. "
+            "Bilgisayarla ilgili isteklerde araçları kullan: önce kısa bir onay ver (örn. 'Açıyorum.'), iş bitince "
+            "sonucu bildir. Aracı çağırmadan 'yaptım' deme, aracın sonucundaki 'message' alanına göre dürüstçe bildir. "
+            "Bir araç sonuç vermez ya da hata dönerse aynı aracı parametreleri değiştirip tekrar tekrar deneme; durumu "
+            "kullanıcıya söyle. Konuşmadan art arda ikiden fazla araç çağırma. "
             + gate +
-            "Bilgisayarda bir şey yapmak için araçları kullan; aracı çağırmadan 'yaptım' deme, aracın sonucuna "
-            "(özellikle 'note' alanına) göre dürüstçe bildir. "
-            "Asla 'yetkim yok' deme. Bir iş için doğrudan aracın yoksa önce araçları birleştirmeyi dene: "
-            "uygulama içi işlerde focus_window + press_keys ile uygulamanın bilinen klavye kısayolunu kullan "
-            "(Discord mikrofon gibi işlerde kayıtlı bir kısayol varsa onu çalıştır). Yine olmuyorsa ne yapamadığını "
-            "ve kullanıcının ne yapabileceğini (örn. Discord'da Tuş Atamaları'ndan mikrofon tuşu atamak, Araçlar "
-            "sayfasından 'PowerShell' aracını açmak) tek cümleyle söyle. "
+            "Asla 'yetkim yok' deme. Doğrudan aracın yoksa önce araçları birleştirmeyi dene: uygulama içi işlerde "
+            "focus_window + press_keys ile uygulamanın bilinen klavye kısayolunu kullan (Discord mikrofon gibi işlerde "
+            "kayıtlı bir kısayol varsa onu çalıştır). Yine olmuyorsa ne yapamadığını ve kullanıcının ne yapabileceğini "
+            "(örn. Discord'da Tuş Atamaları'ndan mikrofon tuşu atamak) tek cümleyle söyle. "
             "Silme, kapatma gibi riskli işlerde önce sözlü onay iste. Anlamazsan kısaca tekrar iste. "
-            + ("Kullanıcı işini bitirince (teşekkürler, tamam, kapat gibi) end_conversation aracını çağır. " if mode != "continuous" else "")
+            + ("Kullanıcı sohbeti bitirince (teşekkürler, tamam, kapat gibi) end_conversation aracını çağır. " if mode != "continuous" else "")
             + mem_rule + mem + custom +
             f"Kayıtlı kısayollar: {sc}. Şu an: {now}.")
 
 
+LIVE_FALLBACK_MODELS = ["gemini-3.8-live", "gemini-3.8-live-extended-thinking", "gemini-2.5-flash-native-audio-latest"]
+
+LIVE_LABELS = {"gemini-3.8-live": "Gemini 3.8 Live (önerilen)",
+               "gemini-3.8-live-extended-thinking": "Gemini 3.8 Live · Derin düşünme (daha yavaş)"}
+
+
 def rank_live_models(names):
-    """Live modellerini tercih sirasina koyar: 3.8 live > diger 3.x live > native-audio (yeni tarih once)."""
     groups = {}
     for n in names:
-        l = n.lower()
-        if "translate" in l or "tts" in l:
+        low = n.lower()
+        if n in DEAD_MODELS or any(x in low for x in ("translate", "tts", "transcribe")):
             continue
-        if "native-audio-latest" in l:
-            r = 0          # JARVIS gibi calisan projelerde ucretsiz anahtarla dogrulanmis takma ad
-        elif "3.8" in l and "live" in l:
+        if low == "gemini-3.8-live":
+            r = 0
+        elif low.startswith("gemini-3.8-live"):
             r = 1
-        elif "live" in l and "gemini-3" in l:
+        elif "live" in low and "gemini-3" in low:
             r = 2
-        elif "native-audio" in l:
+        elif "native-audio" in low:
             r = 3
-        elif "live" in l:
-            r = 3
+        elif "live" in low:
+            r = 4
         else:
-            r = 5          # bidiGenerateContent destekliyor ama adi bilinmiyor: en sona koy
+            r = 5
         groups.setdefault(r, []).append(n)
     out = []
     for r in sorted(groups):
@@ -1352,8 +1524,7 @@ def rank_live_models(names):
 
 
 def list_live_models(key):
-    from google import genai
-    client = genai.Client(api_key=key)
+    client = make_client(key)
     live, allm = [], []
     for m in client.models.list():
         n = (m.name or "").replace("models/", "")
@@ -1365,15 +1536,28 @@ def list_live_models(key):
     return {"live": live, "all": allm}
 
 
-LIVE_FALLBACK_MODELS = ["gemini-2.5-flash-native-audio-latest", "gemini-3.8-live", "gemini-3.1-flash-live-preview",
-                        "gemini-2.5-flash-native-audio-preview-12-2025",
-                        "gemini-2.5-flash-native-audio-preview-09-2025",
-                        "gemini-live-2.5-flash-preview", "gemini-2.0-flash-live-001"]
+def make_client(key, version=""):
+    from google import genai
+    if not version:
+        return genai.Client(api_key=key)
+    from google.genai import types
+    return genai.Client(api_key=key, http_options=types.HttpOptions(api_version=version))
 
 
-# ----------------------------------------------------------------------------
-# Cekirdek: ayarlar, kayit, durum
-# ----------------------------------------------------------------------------
+async def probe_models(key, models, version=""):
+    client = make_client(key, version)
+
+    async def one(m):
+        try:
+            async with client.aio.live.connect(model=m, config={"response_modalities": ["AUDIO"]}):
+                await asyncio.sleep(0.3)
+            return {"model": m, "ok": True, "error": ""}
+        except Exception as e:
+            return {"model": m, "ok": False, "error": _short(e, 160)}
+
+    return list(await asyncio.gather(*(one(m) for m in models)))
+
+
 class Core:
     def __init__(self):
         raw = load_json(CONFIG_PATH, {})
@@ -1383,15 +1567,18 @@ class Core:
                 self.cfg[k] = raw[k]
         if not isinstance(self.cfg.get("tools"), dict):
             self.cfg["tools"] = {}
-        if self.cfg.get("live_model") == LIVE_MODEL_LEGACY:
-            self.cfg["live_model"] = ""      # eski model 404 veriyor olabilir -> otomatik sec
-        if raw.get("cfg_ver", 0) < 4:       # eski surumlerden gecis
+        if self.cfg.get("live_model") in DEAD_MODELS:
+            self.cfg["live_model"] = ""
+            self.cfg["api_version"] = ""
+        if raw.get("cfg_ver", 0) < 5:
             if raw.get("wake_mode") == "off":
                 self.cfg["listen_mode"] = "tap"
-            self.cfg["cfg_ver"] = 4
+            if raw.get("idle_sec") in (None, 12):
+                self.cfg["idle_sec"] = 20
+            self.cfg["cfg_ver"] = 5
             save_json(CONFIG_PATH, self.cfg)
         self.shortcuts = load_shortcuts()
-        if not self.cfg.get("seeded_v21"):    # Discord ornek kisayolu (kapali): Discord'da tus atamasi gerekir
+        if not self.cfg.get("seeded_v21"):
             if not any(norm(x["name"]) == "discord mikrofon" for x in self.shortcuts):
                 self.shortcuts.append({"id": uuid.uuid4().hex[:8], "name": "Discord mikrofon",
                                        "hint": "discord mikrofonu kapat/aç, sustur", "targets": [],
@@ -1404,6 +1591,7 @@ class Core:
                        if isinstance(m, dict) and m.get("key")]
         rem = load_json(REMINDERS_PATH, [])
         self.reminders = [r for r in rem if isinstance(r, dict) and "due" in r] if isinstance(rem, list) else []
+        self.games_cache = []
         self.lock = threading.Lock()
         self.logs = deque(maxlen=400)
         self.seq = 0
@@ -1413,8 +1601,8 @@ class Core:
         self._confirm_evt = threading.Event()
         self._confirm_ok = False
         self._confirm_id = None
-        self.attention = None     # App: pencereyi one getir
-        self.notify = None        # App: tepsi bildirimi
+        self.attention = None
+        self.notify = None
         self.engine = Engine(self)
         self.live = Live(self)
 
@@ -1433,7 +1621,6 @@ class Core:
             except Exception:
                 pass
 
-    # --- hafiza
     def mem_set(self, key, value):
         key, value = (key or "").strip()[:60], (value or "").strip()[:300]
         if not key or not value:
@@ -1455,12 +1642,22 @@ class Core:
             save_json(MEMORY_PATH, {"items": self.memory})
         return len(self.memory) != before
 
-    # --- hatirlaticilar (kalici)
     def save_reminders(self):
         save_json(REMINDERS_PATH, self.reminders)
 
     def start_background(self):
         threading.Thread(target=self._reminder_loop, daemon=True).start()
+        threading.Thread(target=self._warm_caches, daemon=True).start()
+
+    def _warm_caches(self):
+        try:
+            self.games_cache = scan_games()
+        except Exception:
+            pass
+        try:
+            get_apps()
+        except Exception:
+            pass
 
     def _reminder_loop(self):
         while not self.engine.stop.is_set():
@@ -1470,7 +1667,7 @@ class Core:
                 if not r.get("done") and r["due"] <= now:
                     r["done"] = True
                     changed = True
-                    if now - r["due"] < 6 * 3600:      # cok eskiyse sessizce gec
+                    if now - r["due"] < 6 * 3600:
                         self.log(f"Hatırlatıcı: {r['text']}")
                         play_sound("bell", self.cfg.get("beep_volume", 60))
                         self.set_chat("model", "⏰ " + r["text"])
@@ -1509,7 +1706,7 @@ class Core:
         key = (key or "").strip()
         if not key:
             self.cfg["api_key_enc"] = ""
-        elif portable:      # klasor baska bilgisayara tasinacaksa sifrelemeden sakla
+        elif portable:
             self.cfg["api_key_enc"] = "plain:" + base64.b64encode(key.encode()).decode()
         else:
             try:
@@ -1536,7 +1733,6 @@ class Core:
         return bool(self.cfg["tools"].get(name, not t["danger"]))
 
     def talk(self):
-        """Daireye tik / kisayol: oturum yoksa baslat, varsa kapat (surekli modda dinlemeyi ac/kapat)."""
         if self.cfg.get("listen_mode") == "continuous":
             on = not self.cfg.get("listening", True)
             self.cfg["listening"] = on
@@ -1574,9 +1770,6 @@ class Core:
             self._confirm_evt.set()
 
 
-# ----------------------------------------------------------------------------
-# Uyandirma motoru ("Hey Tank") - kucuk Vosk modeli, sadece bunun icin
-# ----------------------------------------------------------------------------
 class Engine(threading.Thread):
     def __init__(self, core):
         super().__init__(daemon=True)
@@ -1588,9 +1781,9 @@ class Engine(threading.Thread):
         self.last_use = time.time()
         self.next_try = 0.0
         self.fail = 0
+        self.hotkey_ok = None
 
     def _hotkey_loop(self):
-        """Genel kisayol (varsayilan Ctrl+Alt+T); ayardan degisince yeniden kaydeder."""
         try:
             import ctypes.wintypes as wt
             u = ctypes.windll.user32
@@ -1602,7 +1795,8 @@ class Engine(threading.Thread):
                         u.UnregisterHotKey(None, 1)
                     cur = combo
                     mods, vk = hotkey_parts(combo)
-                    if vk and u.RegisterHotKey(None, 1, mods | 0x4000, vk):
+                    self.hotkey_ok = bool(vk and u.RegisterHotKey(None, 1, mods | 0x4000, vk))
+                    if self.hotkey_ok:
                         self.core.log(f"Kısayol kaydedildi: {combo}")
                     else:
                         self.core.log(f"Kısayol ({combo}) kaydedilemedi; geçersiz ya da başka uygulama kullanıyor.")
@@ -1707,7 +1901,7 @@ class Engine(threading.Thread):
 
         noise = deque(maxlen=80)
         recent = deque(maxlen=8)
-        ring = deque(maxlen=16)       # son ~2 sn ham ses
+        ring = deque(maxlen=16)
         hits = 0
         with sd.RawInputStream(samplerate=SR, blocksize=2000, device=cfg.get("mic_device"),
                                dtype="int16", channels=1, callback=cb):
@@ -1745,7 +1939,7 @@ class Engine(threading.Thread):
                             core.set_state("wait", "Yeniden bağlanılıyor...")
                             last = "retry"
                         continue
-                    self.start_live(aq, None, noise, None, True)       # oturum kapanana kadar bloklar
+                    self.start_live(aq, None, noise, None, True)
                     self.fail = 0 if core.live.last_ok else self.fail + 1
                     self.next_try = time.time() + (1.5 if core.live.last_ok else min(30, 2 ** min(self.fail, 5)))
                     last, last_data = None, time.time()
@@ -1797,9 +1991,6 @@ class Engine(threading.Thread):
                     last, last_data = None, time.time()
 
 
-# ----------------------------------------------------------------------------
-# Gemini Live oturumu: mikrofon -> Gemini -> (araclar) -> ses cikisi
-# ----------------------------------------------------------------------------
 class Live:
     def __init__(self, core):
         self.core = core
@@ -1819,6 +2010,8 @@ class Live:
         self.manual_start = False
         self.activity = False
         self.skip_lang = False
+        self.skip_vocab = False
+        self._tasks = set()
         self.last_ok = False
         self._ever = False
 
@@ -1840,6 +2033,7 @@ class Live:
         if self.active:
             return
         self._ever = False
+        self._tasks = set()
         self.preroll = list(preroll or [])
         self.manual_start = bool(manual)
         self.activity = False
@@ -1862,16 +2056,21 @@ class Live:
             core.state["level_out"] = 0.0
             core.close_chat()
 
-    def _config(self):
+    def _config(self, model=""):
         core, cfg = self.core, self.core.cfg
         speech = {"voice_config": {"prebuilt_voice_config": {"voice_name": cfg.get("voice", "Charon")}}}
-        lang = LANGS.get(cfg.get("language", "auto"))
+        lang = LANGS.get(cfg.get("language", "tr"))
         if lang and not self.skip_lang:
             speech["language_code"] = lang[0]
+        transcription = {}
+        if "3.8" in model and not self.skip_vocab:
+            vocab = build_vocab(core)
+            if vocab:
+                transcription["custom_vocabulary"] = vocab
         config = {
             "response_modalities": ["AUDIO"],
             "system_instruction": system_prompt(core, self.manual_start),
-            "input_audio_transcription": {},
+            "input_audio_transcription": transcription,
             "output_audio_transcription": {},
             "speech_config": speech,
         }
@@ -1879,25 +2078,37 @@ class Live:
         decls = build_declarations(core)
         if decls:
             tools.append({"function_declarations": decls})
-        if cfg.get("google_search"):
+        if cfg.get("google_search", True):
             tools.append({"google_search": {}})
         if tools:
             config["tools"] = tools
         return config
 
     async def _session_retry(self, client, model, aq, thr, types, probe):
-        """Model dil kodunu reddederse (1007 vb.) dili yalnizca talimatla zorlayarak yeniden dener."""
-        try:
-            await self._session(client, model, self._config(), aq, thr, types, probe)
-        except Exception as e:
-            low = str(e).lower()
-            if (not self._connected) and not self.skip_lang and "language" in low and \
-                    self.core.cfg.get("language", "auto") != "auto":
-                self.skip_lang = True
-                self.core.log("Model dil kodunu kabul etmedi; dil yalnızca talimatla zorlanacak.")
-                await self._session(client, model, self._config(), aq, thr, types, probe)
-            else:
-                raise
+        core = self.core
+        while True:
+            try:
+                await self._session(client, model, self._config(model), aq, thr, types, probe)
+                return
+            except Exception as e:
+                low = str(e).lower()
+                hard = any(x in low for x in ("api key", "api_key", "permission", "quota", "resource_exhausted", "429",
+                                              "403", "404", "is not found", "models/", "location is not supported",
+                                              "billing"))
+                if self._connected or hard:
+                    raise
+                if "3.8" in model and not self.skip_vocab and build_vocab(core):
+                    self.skip_vocab = True
+                    core.log("Model özel kelime listesini kabul etmedi; o olmadan devam ediliyor.")
+                elif core.cfg.get("google_search", True):
+                    core.cfg["google_search"] = False
+                    core.save_cfg()
+                    core.log("Google araması bu modelde kullanılamadı; kapatıldı.")
+                elif LANGS.get(core.cfg.get("language", "tr")) and not self.skip_lang:
+                    self.skip_lang = True
+                    core.log("Model dil kodunu kabul etmedi; dil yalnızca talimatla zorlanacak.")
+                else:
+                    raise
 
     async def _main(self, aq, thr):
         key = self.core.get_key()
@@ -1910,7 +2121,6 @@ class Live:
         await self.connect_loop(key, aq, thr, probe=False)
 
     async def connect_loop(self, key, aq, thr, probe=False):
-        """Model ve API surumu birlestirmelerini dener (404/desteklenmiyor -> siradaki); calisani kaydeder."""
         from google import genai
         from google.genai import types
         core, cfg = self.core, self.core.cfg
@@ -1922,7 +2132,6 @@ class Live:
                                 genai.Client(api_key=key, http_options=types.HttpOptions(api_version=ver)))
             return clients[ver]
 
-        config = self._config()
         versions = []
         for v in ((cfg.get("api_version") or ""), "", "v1beta", "v1alpha"):
             if v not in versions:
@@ -1966,23 +2175,23 @@ class Live:
                 except Exception as e:
                     low = str(e).lower()
                     if self._connected and time.time() - t0 > 4:
-                        raise                                  # oturum calisirken kopma: yeniden deneme yok
+                        raise
                     errors.append(f"{model} [{ver or 'varsayılan'}]: {_short(e, 150)}")
                     core.log("Bağlanamadı: " + errors[-1])
                     if self._connected:
-                        good_ver = ver                         # el sikisma tamam, sorun modelde
+                        good_ver = ver
                     handshake404 = (not self._connected) and "404" in low
                     modelish = any(x in low for x in ("not found", "not supported", "unsupported", "1008"))
                     if handshake404:
-                        continue                               # siradaki API surumu
+                        continue
                     all404 = False
                     if modelish:
-                        break                                  # siradaki model
-                    raise RuntimeError(_short(e, 400))         # anahtar/kota/bolge gibi gercek hata
+                        break
+                    raise RuntimeError(_short(e, 400))
             if all404:
                 hs404 += 1
                 if hs404 >= 2:
-                    break                                      # model degistirmek yardim etmiyor
+                    break
         raise RuntimeError("Live bağlantısı kurulamadı. " + " | ".join(errors[-4:]))
 
     async def _session(self, client, model, config, aq, thr, types, probe):
@@ -2007,6 +2216,9 @@ class Live:
                 for d in done:
                     d.result()
             finally:
+                for t in list(self._tasks):
+                    t.cancel()
+                await asyncio.gather(*list(self._tasks), return_exceptions=True)
                 self._stop_player()
         core.log("Oturum kapandı.")
 
@@ -2016,7 +2228,7 @@ class Live:
         barge = bool(cfg.get("barge_in", False))
         cont = cfg.get("listen_mode") == "continuous"
         vad_ring = deque(maxlen=6)
-        for d in self.preroll:      # "Hey Tank" dahil son ~2 sn: Gemini uyandirmayi dogrular
+        for d in self.preroll:
             await session.send_realtime_input(audio=types.Blob(data=d, mime_type="audio/pcm;rate=16000"))
         self.preroll = []
         while not core.engine.stop.is_set():
@@ -2029,7 +2241,7 @@ class Live:
             now = time.time()
             quiet = now - max(self.last_voice, self.last_model, self.last_audio)
             idle_now = idle if self.activity else min(idle, 8.0)
-            if not cont and ((not busy and quiet > idle_now) or quiet > idle + 90):     # 2. kosul: takilmaya karsi emniyet
+            if not cont and ((not busy and quiet > idle_now) or quiet > idle + 90):
                 core.log("Konuşma olmadığı için oturum kapandı.")
                 return
             try:
@@ -2040,13 +2252,13 @@ class Live:
             rms = float(np.sqrt(np.mean(a ** 2)))
             core.state["level"] = min(1.0, rms / 3000.0)
             core.state["beat"] = now
-            if busy and not barge:          # Tank konusurken mikrofonu gonderme (yanki olmasin)
+            if busy and not barge:
                 continue
             if rms > thr:
                 self.last_voice = now
                 self.activity = True
             if cont and rms <= thr and now - self.last_voice > 1.5:
-                vad_ring.append(data)          # surekli modda sessizligi gonderme (veri/kota tasarrufu)
+                vad_ring.append(data)
                 continue
             if cont and vad_ring:
                 for d in vad_ring:
@@ -2069,7 +2281,7 @@ class Live:
                     if mt and mt.parts:
                         for part in mt.parts:
                             d = getattr(part, "inline_data", None)
-                            if d and d.data and cfg.get("speak", True):
+                            if d and d.data:
                                 self.speaking = True
                                 self.activity = True
                                 self.last_model = time.time()
@@ -2092,25 +2304,32 @@ class Live:
                 tc = getattr(resp, "tool_call", None)
                 if tc:
                     self.tool_busy += 1
-                    try:
-                        await self._tools(session, tc, types)
-                    finally:
-                        self.tool_busy -= 1
+                    task = asyncio.create_task(self._tools(session, tc, types))
+                    self._tasks.add(task)
+                    task.add_done_callback(self._tasks.discard)
                 if getattr(resp, "go_away", None):
                     core.log("Gemini: bağlantı yakında kapanacak.")
 
     async def _tools(self, session, tc, types):
         core = self.core
-        resps = []
-        for fc in tc.function_calls:
-            args = dict(fc.args or {})
-            label = TOOLS[fc.name]["label"] if fc.name in TOOLS else fc.name
-            core.set_state("think", f"Çalıştırıyor: {label}")
-            res = await asyncio.to_thread(run_tool, core, fc.name, args)
-            resps.append(types.FunctionResponse(id=fc.id, name=fc.name, response={"result": res}))
-        await session.send_tool_response(function_responses=resps)
-        self.last_model = time.time()
-        core.set_state("listen", "Dinliyorum")
+        try:
+            resps = []
+            for fc in tc.function_calls:
+                args = dict(fc.args or {})
+                label = TOOLS[fc.name]["label"] if fc.name in TOOLS else fc.name
+                core.set_state("think", f"Çalıştırıyor: {label}")
+                res = await asyncio.to_thread(run_tool, core, fc.name, args)
+                resps.append(types.FunctionResponse(id=fc.id, name=fc.name, response=res))
+            await session.send_tool_response(function_responses=resps)
+            self.last_model = time.time()
+            if not self.speaking:
+                core.set_state("listen", "Dinliyorum")
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            core.log(f"Araç yanıtı gönderilemedi: {_short(e)}")
+        finally:
+            self.tool_busy -= 1
 
     def _start_player(self):
         self._play_stop = False
@@ -2150,14 +2369,11 @@ class Live:
             self.speaking = False
 
 
-# ----------------------------------------------------------------------------
-# JS <-> Python koprusu (alt cizgili ozellikler pywebview'a gorunmez)
-# ----------------------------------------------------------------------------
 INT_KEYS = {"beep_volume", "idle_sec"}
-BOOL_KEYS = {"speak", "barge_in", "listening", "strict_wake", "hotkey", "feedback_sounds", "onboarded",
-             "use_memory", "google_search", "sidebar_collapsed", "close_to_tray", "log_to_file"}
+BOOL_KEYS = {"barge_in", "listening", "strict_wake", "hotkey", "feedback_sounds", "onboarded", "use_memory",
+             "sidebar_collapsed", "close_to_tray", "log_to_file", "advanced_settings"}
 STR_KEYS = {"live_model", "voice", "wake_lang", "wake_sens", "beep_sound", "wake_mode", "listen_mode", "language",
-            "assistant_name", "custom_instructions", "hotkey_combo", "weather_location"}
+            "custom_instructions", "hotkey_combo", "weather_location"}
 
 
 class Api:
@@ -2212,7 +2428,6 @@ class Api:
         s["mode"] = c.cfg.get("listen_mode", "wake")
         return s
 
-    # --- konusma
     def talk(self):
         self._core.talk()
         return True
@@ -2221,7 +2436,6 @@ class Api:
         self._core.answer_confirm(cid, ok)
         return True
 
-    # --- hafiza / hatirlaticilar / veri
     def get_memory(self):
         return [{"key": m["key"], "value": m["value"]} for m in self._core.memory]
 
@@ -2270,7 +2484,6 @@ class Api:
         c.engine.reopen.set()
         return self._public_cfg()
 
-    # --- Gemini
     def set_key(self, key, portable=False):
         self._core.set_key(key, bool(portable))
         return bool(self._core.get_key())
@@ -2282,29 +2495,121 @@ class Api:
         return False
 
     def test_live(self):
-        """Gercek bir Live baglantisi acip kapatir: anahtar + model + arac semalari dogrulanir."""
+        c = self._core
+        key = c.get_key()
+        if not key:
+            return {"ok": False, "error": "Önce anahtarı kaydet."}
+        c.cfg["google_search"] = True
+        c.live.skip_lang = False
+        c.live.skip_vocab = False
+        try:
+            model = asyncio.run(c.live.connect_loop(key, None, 0.0, probe=True))
+            c.set_state("wait", "“Hey Tank” bekleniyor")
+            return {"ok": True, "model": model, "search": bool(c.cfg.get("google_search", True))}
+        except Exception as e:
+            return {"ok": False, "error": _short(e, 600)}
+
+    def test_models(self):
         c = self._core
         key = c.get_key()
         if not key:
             return {"ok": False, "error": "Önce anahtarı kaydet."}
         try:
-            model = asyncio.run(c.live.connect_loop(key, None, 0.0, probe=True))
-            c.set_state("wait", "“Hey Tank” bekleniyor")
-            return {"ok": True, "model": model}
+            names = rank_live_models(list_live_models(key)["live"])
+            for m in LIVE_FALLBACK_MODELS:
+                if m not in names:
+                    names.append(m)
+            res = asyncio.run(probe_models(key, names, c.cfg.get("api_version") or ""))
+            return {"ok": True, "results": res, "current": c.cfg.get("live_model", "")}
         except Exception as e:
             return {"ok": False, "error": _short(e, 600)}
 
-    def check_key(self, key=""):
-        key = (key or "").strip() or self._core.get_key()
-        if not key:
-            return {"ok": False, "error": "Anahtar boş."}
+    def run_diagnostics(self):
+        c = self._core
+        out = []
+
+        def add(name, status, detail):
+            out.append({"name": name, "status": status, "detail": detail})
+
+        key = c.get_key()
+        add("Gemini anahtarı", "ok" if key else "fail", "Kayıtlı." if key else "Anahtar yok; Ayarlar'dan ekle.")
         try:
-            info = list_live_models(key)
-            return {"ok": True, "models": rank_live_models(info["live"]), "count": len(info["all"])}
+            import sounddevice as sd
+            levels = []
+            with sd.RawInputStream(samplerate=SR, blocksize=2000, device=c.cfg.get("mic_device"),
+                                   dtype="int16", channels=1) as st:
+                t0 = time.time()
+                while time.time() - t0 < 0.8:
+                    data, _ = st.read(2000)
+                    a = np.frombuffer(bytes(data), dtype=np.int16).astype(np.float32)
+                    levels.append(float(np.sqrt(np.mean(a ** 2))))
+            peak = max(levels) if levels else 0
+            if peak > 5:
+                add("Mikrofon", "ok", f"Ses alınıyor (seviye {int(peak)}).")
+            else:
+                add("Mikrofon", "warn", "Ses çok zayıf ya da yok; mikrofon seçimini ve Windows ses ayarını kontrol et.")
         except Exception as e:
-            return {"ok": False, "error": _short(e, 600)}
+            add("Mikrofon", "fail", _short(e, 140))
+        try:
+            import sounddevice as sd
+            sd.query_devices(kind="output")
+            play_sound("ok", max(40, c.cfg.get("beep_volume", 60)))
+            add("Hoparlör", "ok", "Test sesi çalındı; duyduysan sorun yok.")
+        except Exception as e:
+            add("Hoparlör", "fail", _short(e, 140))
+        try:
+            import urllib.request
+            import urllib.error
+            try:
+                urllib.request.urlopen("https://generativelanguage.googleapis.com/", timeout=6)
+            except urllib.error.HTTPError:
+                pass
+            add("İnternet", "ok", "Gemini sunucusuna ulaşılıyor.")
+        except Exception as e:
+            add("İnternet", "fail", "Gemini sunucusuna ulaşılamıyor: " + _short(e, 100))
+        if not key:
+            add("Model bağlantısı", "fail", "Anahtar olmadan test edilemez.")
+        elif c.live.active:
+            add("Model bağlantısı", "warn", "Oturum açıkken test edilemez; oturumu kapatıp tekrar dene.")
+        else:
+            r = self.test_live()
+            if r["ok"]:
+                add("Model bağlantısı", "ok", f"Bağlandı: {r['model']}")
+                add("Google araması", "ok" if r["search"] else "warn",
+                    "Açık." if r["search"] else "Bu modelde kullanılamıyor, kapalı.")
+            else:
+                add("Model bağlantısı", "fail", hint_for_error(r["error"]))
+        mode = c.cfg.get("listen_mode", "wake")
+        if mode == "wake":
+            ok = (MODELS / ("vosk-tr" if c.cfg.get("wake_lang", "tr") == "tr" else "vosk-en")).exists()
+            add("Uyandırma modeli", "ok" if ok else "fail", "Yüklü." if ok else "models klasöründe uyandırma modeli yok.")
+        else:
+            add("Uyandırma modeli", "ok", "Bu modda gerekmiyor.")
+        hk = c.engine.hotkey_ok
+        add("Genel kısayol", "ok" if hk else ("warn" if hk is None else "fail"),
+            f"{c.cfg.get('hotkey_combo')} kayıtlı." if hk else "Kayıtlı değil; başka bir uygulama bu tuşu kullanıyor olabilir.")
+        add("Pencere", "ok" if self._app.window is not None else "warn",
+            "Normal pencere." if self._app.window is not None else "Edge penceresi modu (WebView2 yüklenemedi).")
+        try:
+            DATA.mkdir(parents=True, exist_ok=True)
+            probe_file = DATA / ".yazma-testi"
+            probe_file.write_text("1")
+            probe_file.unlink()
+            add("Veri klasörü", "ok", str(DATA))
+        except Exception as e:
+            add("Veri klasörü", "fail", "Yazılamıyor: " + _short(e, 100))
+        ok, txt = appvol_ps("list")
+        add("Uygulama sesleri", "ok" if ok else "warn",
+            "Ses karıştırıcıya erişiliyor." if ok else "Ses karıştırıcıya erişilemedi: " + txt[:100])
+        try:
+            from PIL import ImageGrab
+            ImageGrab.grab()
+            add("Ekran görüntüsü", "ok", "Alınabiliyor.")
+        except Exception as e:
+            add("Ekran görüntüsü", "fail", _short(e, 100))
+        return out
 
-    # --- kisayollar
+
     def save_shortcut(self, sc):
         c = self._core
         sc["targets"] = [t.strip() for t in sc.get("targets", []) if t.strip()]
@@ -2338,7 +2643,6 @@ class Api:
                 threading.Thread(target=run_shortcut_obj, args=(x, self._core.log), daemon=True).start()
         return True
 
-    # --- araclar / ayarlar
     def set_tool(self, name, enabled):
         if name in TOOLS:
             self._core.cfg["tools"][name] = bool(enabled)
@@ -2409,15 +2713,7 @@ class Api:
         self._app.quit()
         return True
 
-    def hide(self):
-        self._app.hide()
-        return True
 
-
-# ----------------------------------------------------------------------------
-# Internetten inen zip'teki "Zone.Identifier" isaretini kaldir.
-# .NET bu isaretli DLL'leri yuklemeyi reddeder -> "Failed to resolve Python.Runtime.Loader.Initialize"
-# ----------------------------------------------------------------------------
 def unblock_files():
     try:
         for root in {BASE, RES}:
@@ -2434,20 +2730,19 @@ def unblock_files():
 
 
 def selftest():
-    """CI'da: derlenen exe pythonnet/pywebview ve ses kutuphanelerini yukleyebiliyor mu?"""
     out = BASE / "selftest.txt"
     code = 0
     try:
         unblock_files()
-        import clr  # noqa: F401  (pythonnet)
-        import webview  # noqa: F401
-        from google import genai  # noqa: F401
-        from google.genai import types  # noqa: F401
-        import websockets  # noqa: F401
-        import vosk  # noqa: F401
-        import sounddevice  # noqa: F401
-        import psutil  # noqa: F401
-        from PIL import ImageGrab  # noqa: F401
+        import clr
+        import webview
+        from google import genai
+        from google.genai import types
+        import websockets
+        import vosk
+        import sounddevice
+        import psutil
+        from PIL import ImageGrab
         out.write_text("OK", encoding="utf-8")
     except Exception as e:
         out.write_text(f"HATA: {e!r}", encoding="utf-8")
@@ -2455,9 +2750,6 @@ def selftest():
     os._exit(code)
 
 
-# ----------------------------------------------------------------------------
-# Yedek arayuz: pywebview/pythonnet calismazsa Edge/Chrome "uygulama modu" + yerel sunucu
-# ----------------------------------------------------------------------------
 SHIM = r"""<script>(function(){if(window.pywebview)return;var b=location.pathname.replace(/[^\/]*$/,'');
 window.pywebview={api:new Proxy({},{get:function(_,n){return function(){var a=Array.prototype.slice.call(arguments);
 return fetch(b+'api/'+n,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(a)}).then(function(r){return r.json()})}}})};
@@ -2513,16 +2805,6 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             self._send(500, "application/json", json.dumps({"error": repr(e)}).encode("utf-8"))
 
 
-# ----------------------------------------------------------------------------
-# Uygulama / pencere / tepsi
-# ----------------------------------------------------------------------------
-def message_box(text, title="Hey Tank"):
-    try:
-        ctypes.windll.user32.MessageBoxW(0, text, title, 0x10)
-    except Exception:
-        pass
-
-
 class App:
     def __init__(self, hidden):
         self.core = Core()
@@ -2533,7 +2815,6 @@ class App:
         self.proc = None
 
     def set_window_icon(self, *a):
-        """Gorev cubugu / baslik cubugu ikonu (exe ikonu gomulu olmasa bile T gorunur)."""
         try:
             ico = RES / "assets" / "icon.ico"
             if not ico.exists():
@@ -2604,7 +2885,6 @@ class App:
         webbrowser.open(url)
 
     def watch_show(self):
-        """Uygulama zaten calisirken exe'ye tekrar cift tiklanirsa pencereyi one getir."""
         f = DATA / ".show"
         while True:
             time.sleep(1)
@@ -2644,14 +2924,14 @@ class App:
             self.tray = None
 
     def run(self):
-        unblock_files()   # pythonnet yuklenmeden once
+        unblock_files()
         try:
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("HeyTank.App")
         except Exception:
             pass
         if get_autostart():
             try:
-                set_autostart(True)   # klasor tasinmissa yolu guncelle
+                set_autostart(True)
             except Exception:
                 pass
         self.core.engine.start()
@@ -2659,7 +2939,6 @@ class App:
         self.core.attention = self.show
         self.core.start_background()
         self.core.notify = self.notify
-        threading.Thread(target=get_apps, daemon=True).start()   # Baslat menusu listesini onceden hazirla
         threading.Thread(target=self.watch_show, daemon=True).start()
 
         ok = False
@@ -2681,7 +2960,6 @@ class App:
         if ok:
             self.quit()
 
-        # yedek: Edge/Chrome uygulama penceresi
         self.start_browser_ui(show=not self.hidden)
         while True:
             time.sleep(1)
@@ -2706,6 +2984,6 @@ if __name__ == "__main__":
     else:
         try:
             DATA.mkdir(parents=True, exist_ok=True)
-            (DATA / ".show").write_text("1")   # calisan kopya pencereyi one getirir
+            (DATA / ".show").write_text("1")
         except Exception:
             pass

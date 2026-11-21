@@ -1,4 +1,4 @@
-name: Build HeyTank
+name: Derleme
 
 on:
   push:
@@ -19,20 +19,20 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Bagimliliklari kur
+      - name: Bağımlılıkları kur
         run: pip install -r requirements.txt pyinstaller
 
-      - name: python3.dll yolu
+      - name: python3.dll yolunu bul
         id: py
         shell: pwsh
         run: |
           $p = python -c "import sys,os;print(os.path.join(sys.base_prefix,'python3.dll'))"
           "py3=$p" >> $env:GITHUB_OUTPUT
 
-      - name: Ikon uret
+      - name: Simge üret
         run: python tools/make_icon.py
 
-      - name: exe derle
+      - name: Uygulamayı derle
         run: >
           pyinstaller --noconfirm --noconsole --name HeyTank --icon assets/icon.ico
           --add-data "ui;ui" --add-data "assets;assets" --add-binary "${{ steps.py.outputs.py3 }};."
@@ -44,61 +44,50 @@ jobs:
           --collect-all httpx --collect-all anyio
           main.py
 
-      - name: .NET icin uzak-kaynak izni (HeyTank.exe.config)
+      - name: Windows engel işareti ayarı
         shell: pwsh
         run: |
           Set-Content -Path dist/HeyTank/HeyTank.exe.config -Encoding UTF8 -Value @(
             '<?xml version="1.0" encoding="utf-8"?>',
             '<configuration><runtime><loadFromRemoteSources enabled="true"/></runtime></configuration>')
 
-      - name: Acilis testi (internet isareti ile)
+      - name: Açılış testi
         shell: pwsh
         continue-on-error: true
         timeout-minutes: 5
         run: |
-          # Sadece DLL/pyd'lere isaret koy. exe'ye KOYMA: Windows "Guvenlik Uyarisi" penceresi acip sonsuza dek bekler.
           Get-ChildItem dist/HeyTank -Recurse -File | Where-Object { $_.Extension -in '.dll','.pyd' } | ForEach-Object {
             Set-Content -Path $_.FullName -Stream Zone.Identifier -Value "[ZoneTransfer]`r`nZoneId=3" }
           $p = Start-Process dist/HeyTank/HeyTank.exe -ArgumentList "--selftest" -PassThru
           $done = $p.WaitForExit(120000)
-          if (Test-Path dist/HeyTank/selftest.txt) { Write-Host ("Sonuc: " + (Get-Content dist/HeyTank/selftest.txt -Raw)) }
-          if (-not $done) { $p.Kill(); throw "Acilis testi 120 sn icinde bitmedi (pencere/diyalog bekliyor olabilir)" }
-          if ($p.ExitCode -ne 0) { throw "Acilis testi basarisiz (kod $($p.ExitCode))" }
+          if (Test-Path dist/HeyTank/selftest.txt) { Write-Host ("Sonuç: " + (Get-Content dist/HeyTank/selftest.txt -Raw)) }
+          if (-not $done) { $p.Kill(); throw "Açılış testi 120 saniyede bitmedi" }
+          if ($p.ExitCode -ne 0) { throw "Açılış testi başarısız (kod $($p.ExitCode))" }
           Remove-Item dist/HeyTank/selftest.txt -ErrorAction SilentlyContinue
-
-      - name: Exe ikonunu kontrol et
-        shell: pwsh
-        run: |
-          Add-Type -AssemblyName System.Drawing
-          $ic = [System.Drawing.Icon]::ExtractAssociatedIcon("$PWD\dist\HeyTank\HeyTank.exe")
-          $ic.ToBitmap().Save("$PWD\exe-icon-check.png", [System.Drawing.Imaging.ImageFormat]::Png)
-
-      - name: Ikon kontrol ciktisi
-        uses: actions/upload-artifact@v4
-        with:
-          name: exe-icon-check
-          path: exe-icon-check.png
 
       - name: Modelleri indir
         run: python tools/fetch_models.py dist/HeyTank/models
 
-      - name: Boyutu goster
+      - name: Boyutu yaz
+        shell: pwsh
         run: |
           $s = (Get-ChildItem dist/HeyTank -Recurse | Measure-Object Length -Sum).Sum / 1MB
           Write-Host ("Toplam: {0:N0} MB" -f $s)
 
-      - name: Artifact yukle
+      - name: Çıktıyı yükle
         uses: actions/upload-artifact@v4
         with:
           name: HeyTank-portable
           path: dist/HeyTank
 
-      - name: Zip (sadece tag surumunde)
+      - name: Zip oluştur
         if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
         run: Compress-Archive -Path dist/HeyTank -DestinationPath HeyTank-portable.zip
 
-      - name: Release olustur
+      - name: Sürümü yayınla
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: HeyTank-portable.zip
+          generate_release_notes: true

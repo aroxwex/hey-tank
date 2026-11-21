@@ -1,4 +1,3 @@
-"""assets/icon.ico ve icon.png uretir (derleme sirasinda calisir)."""
 import sys
 from pathlib import Path
 
