@@ -443,6 +443,13 @@ def _short(e, n=220) -> str:
     return (str(e) or repr(e))[:n]
 
 
+KEY_RE = re.compile(r"[A-Za-z0-9_.\-]{20,128}")
+
+
+def valid_key(k):
+    return bool(KEY_RE.fullmatch(k or ""))
+
+
 def load_shortcuts():
     sc = load_json(SHORTCUTS_PATH, None)
     if isinstance(sc, list):
@@ -1387,7 +1394,7 @@ def hint_for_error(err):
     if re.search(r"location is not supported|FAILED_PRECONDITION", e, re.I):
         return "Google bu bölgede servisi desteklemiyor olabilir."
     if re.search(r"429|quota|RESOURCE_EXHAUSTED", e, re.I):
-        return "Kota dolmuş görünüyor."
+        return "Google bu anahtar için kota yok diyor; bu hesapta canlı model kotası kapalı ya da dolmuş olabilir."
     if re.search(r"403|PERMISSION_DENIED", e, re.I):
         return "İzin reddedildi."
     return _short(e, 160)
@@ -1578,6 +1585,10 @@ class Core:
             self.cfg["cfg_ver"] = 5
             save_json(CONFIG_PATH, self.cfg)
         self.shortcuts = load_shortcuts()
+        stored = self.raw_key() if self.cfg.get("api_key_enc") else None
+        if stored is not None and not valid_key(stored):
+            self.cfg["api_key_enc"] = ""
+            save_json(CONFIG_PATH, self.cfg)
         if not self.cfg.get("seeded_v21"):
             if not any(norm(x["name"]) == "discord mikrofon" for x in self.shortcuts):
                 self.shortcuts.append({"id": uuid.uuid4().hex[:8], "name": "Discord mikrofon",
@@ -1704,6 +1715,8 @@ class Core:
 
     def set_key(self, key, portable=False):
         key = (key or "").strip()
+        if key and not valid_key(key):
+            return False
         if not key:
             self.cfg["api_key_enc"] = ""
         elif portable:
@@ -1714,8 +1727,9 @@ class Core:
             except Exception:
                 self.cfg["api_key_enc"] = "plain:" + base64.b64encode(key.encode()).decode()
         self.save_cfg()
+        return True
 
-    def get_key(self):
+    def raw_key(self):
         v = self.cfg.get("api_key_enc", "")
         try:
             if v.startswith("dpapi:"):
@@ -1724,7 +1738,11 @@ class Core:
                 return base64.b64decode(v[6:]).decode()
         except Exception:
             pass
-        return ""
+        return None
+
+    def get_key(self):
+        k = self.raw_key()
+        return k if k and valid_key(k) else ""
 
     def tool_enabled(self, name):
         t = TOOLS.get(name)
@@ -2092,10 +2110,17 @@ class Live:
                 return
             except Exception as e:
                 low = str(e).lower()
-                hard = any(x in low for x in ("api key", "api_key", "permission", "quota", "resource_exhausted", "429",
-                                              "403", "404", "is not found", "models/", "location is not supported",
-                                              "billing"))
+                quota = any(x in low for x in ("quota", "resource_exhausted", "429"))
+                hard = any(x in low for x in ("api key", "api_key", "permission", "403", "404", "is not found",
+                                              "models/", "location is not supported"))
                 if self._connected or hard:
+                    raise
+                if quota:
+                    if core.cfg.get("google_search", True):
+                        core.cfg["google_search"] = False
+                        core.save_cfg()
+                        core.log("Kota hatası: Google araması kapatılıp yeniden deneniyor.")
+                        continue
                     raise
                 if "3.8" in model and not self.skip_vocab and build_vocab(core):
                     self.skip_vocab = True
@@ -2133,7 +2158,7 @@ class Live:
             return clients[ver]
 
         versions = []
-        for v in ((cfg.get("api_version") or ""), "", "v1beta", "v1alpha"):
+        for v in ((cfg.get("api_version") or "v1beta"), "v1beta", "", "v1alpha"):
             if v not in versions:
                 versions.append(v)
         first = (cfg.get("live_model") or "").strip()
@@ -2485,8 +2510,8 @@ class Api:
         return self._public_cfg()
 
     def set_key(self, key, portable=False):
-        self._core.set_key(key, bool(portable))
-        return bool(self._core.get_key())
+        ok = self._core.set_key(key, bool(portable))
+        return ok and bool(self._core.get_key())
 
     def open_external(self, url):
         if isinstance(url, str) and url.startswith("https://aistudio.google.com/"):

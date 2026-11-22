@@ -68,6 +68,8 @@ Bir şey çalışmıyorsa sol menüdeki **Sistem testi** sayfasını çalıştı
 
 **Bağlanamıyor:** Sistem testini çalıştır. Anahtarını ve internetini kontrol et. Ayarlar, Gelişmiş, Gemini bölümündeki **Modelleri test et** düğmesi hangi modellerin çalıştığını gösterir.
 
+**Kota hatası alıyorum:** Google bu anahtar için kota yok diyor demektir. Ücretsiz kotanın sınırları Google'a bağlıdır ve hesaba ya da bölgeye göre değişebilir. AI Studio'da canlı konuşmayı denemek faydalı olur, orada da çalışmıyorsa sorun Google tarafındadır.
+
 **Arayüz açılmıyor:** İndirdiğin zip'e sağ tıkla, Özellikler'de **Engellemeyi kaldır** kutusunu işaretle ve zip'i yeniden çıkar.
 
 **Discord'da mikrofon kapanmıyor:** Discord mikrofonu sadece tuş atamasıyla yönetilebilir. Discord'da Tuş Atamaları'ndan mikrofon eylemine `Ctrl+Shift+M` ata, sonra Hey Tank'te Kısayollar sayfasındaki "Discord mikrofon" kısayolunu aç.

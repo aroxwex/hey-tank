@@ -421,7 +421,7 @@ document.addEventListener("click",async e=>{
     t.textContent="Kopyalandı";setTimeout(()=>t.textContent="Raporu kopyala",1500);return}
   if(t.id==="keybtn"){
     const v=$("key").value.trim(); $("keyres").textContent="Kaydediliyor ve bağlanılıyor...";
-    if(v){S.hasKey=await api().set_key(v,$("portable").checked);}
+    if(v){S.hasKey=await api().set_key(v,$("portable").checked);if(!S.hasKey){$("keyres").textContent="Anahtar geçersiz görünüyor. Yalnızca anahtarı yapıştır (tek satır, boşluksuz).";return}}
     const r=await api().test_live();
     if(r.ok){S.cfg.live_model=r.model;renderSettings();$("keyres").textContent="Bağlandı ✓ Model: "+r.model}
     else $("keyres").textContent="Hata: "+hintFor(r.error)+" ("+String(r.error||"").slice(0,300)+")";
@@ -456,7 +456,7 @@ function hintFor(err){
   const e=String(err||"");
   if(/API key not valid|API_KEY_INVALID|invalid api key/i.test(e))return "Anahtar geçersiz görünüyor: baştan kopyalayıp tekrar yapıştır (başında/sonunda boşluk olmasın).";
   if(/location is not supported|FAILED_PRECONDITION/i.test(e))return "Google, bulunduğun bölgede bu servisi (ücretsiz katman / Live) desteklemiyor olabilir.";
-  if(/429|quota|RESOURCE_EXHAUSTED/i.test(e))return "Kota dolmuş görünüyor; biraz bekleyip tekrar dene.";
+  if(/429|quota|RESOURCE_EXHAUSTED/i.test(e))return "Google bu anahtar için kota yok diyor: bu hesapta canlı model kotası kapalı ya da dolmuş olabilir. AI Studio'da canlı konuşmayı denemek faydalı olur.";
   if(/403|PERMISSION_DENIED/i.test(e))return "İzin reddedildi: bu anahtar Gemini API'ye erişemiyor olabilir (AI Studio'da anahtarın projesini kontrol et).";
   if(/404/.test(e))return "Sunucu bağlantıyı reddetti (HTTP 404): model veya API sürümü bulunamadı. Kayıt sekmesindeki satırları bana gönder.";
   return "Kayıt sekmesindeki satırları bana gönderirsen sebebini bulurum.";
@@ -498,7 +498,7 @@ function renderWiz(){
   on("w-test",async()=>{
     const v=$("w-key").value.trim(); wz.portable=$("w-port").checked;
     $("w-res").textContent="Kaydediliyor ve bağlanılıyor... (birkaç saniye)";
-    if(v){S.hasKey=await api().set_key(v,wz.portable)}
+    if(v){S.hasKey=await api().set_key(v,wz.portable);if(!S.hasKey){$("w-res").textContent="Anahtar geçersiz görünüyor. Yalnızca anahtarı yapıştır (tek satır, boşluksuz).";return}}
     if(!S.hasKey){$("w-res").textContent="Önce anahtarı yapıştır.";return}
     const r=await api().test_live();
     if(r.ok){wz.ok=true;wz.msg="Bağlandı ✓ Model: "+r.model;S.cfg.live_model=r.model;$("w-key").value=""}
